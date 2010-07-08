@@ -645,8 +645,10 @@ handle_call(Call, DefinedVars, State) ->
   end.
 
 get_plt_constr(MFA, Dst, ArgVars, State) ->
+  ?debug("Looking ~p in plt\n",[MFA]),
   Plt = state__plt(State),
   PltRes = dialyzer_plt:lookup(Plt, MFA),
+  PltCleanRes = dialyzer_plt:clean_lookup(Plt, MFA),
   Opaques = State#state.opaques,
   Module = State#state.module,
   SCCMFAs = State#state.mfas,
@@ -661,8 +663,17 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
       case PltRes of
 	none -> State;
 	{value, {PltRetType, PltArgTypes}} ->
-	  state__store_conj_lists([Dst|ArgVars], sub,
-				  [PltRetType|PltArgTypes], State)
+	  case PltCleanRes of
+	    {value, {'fun', PltType}} ->
+	      ?debug("Making intersectioned constraint\n",[]),
+	      Intersections = erl_types:t_get_intersections(PltType),
+	      Conjs = intersect_into_conj(Intersections, ArgVars, Dst),
+	      Disjs = mk_disj_constraint_list(Conjs),
+	      state__store_conj(Disjs, State);
+	    PltRes ->
+	      state__store_conj_lists([Dst|ArgVars], sub,
+				      [PltRetType|PltArgTypes], State)
+	  end
       end;
     {value, #contract{args = GenArgs} = C} ->
       {RetType, ArgCs} =
@@ -690,6 +701,21 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
 	     [t_inf(X, Y, opaque) || {X, Y} <- lists:zip(GenArgs, PltArgTypes)]}
 	end,
       state__store_conj_lists([Dst|ArgVars], sub, [RetType|ArgCs], State)
+  end.
+
+intersect_into_conj(Intersections, ArgVars, Dst) ->
+  intersect_into_conj(Intersections, ArgVars, Dst, []).
+
+intersect_into_conj([], _ArgVars, _Dst, Acc) ->
+  lists:reverse(Acc);
+intersect_into_conj([{ArgTypes, RetType}|Rest], ArgVars, Dst, Acc) ->
+  try mk_constraints([Dst|ArgVars], sub, [RetType|ArgTypes]) of
+    Constr ->
+      NewConj = mk_constraint_list(conj, Constr),
+      intersect_into_conj(Rest, ArgVars, Dst, [NewConj| Acc])
+  catch
+    _:_ ->
+      intersect_into_conj(Rest, ArgVars, Dst, Acc)
   end.
 
 filter_match_fail([Clause] = Cls) ->
@@ -798,7 +824,7 @@ handle_clauses_1([Clause|Tail], TopVar, Arg, DefinedVars,
 		       State, NewSubtrTypes, Acc)
   end;
 handle_clauses_1([], _TopVar, _Arg, _DefinedVars, State, _SubtrType, Acc) ->
-  {state__new_constraint_context(State), Acc}.
+  {state__new_constraint_context(State), lists:reverse(Acc)}.
 
 -spec get_safe_underapprox([cerl:c_values()], cerl:cerl()) -> erl_types:erl_type().
 
@@ -1666,14 +1692,23 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 
 -spec solve([type_var()], state()) -> type_dict().
 
-solve([Fun], State) ->
+solve([_]=Fun, State) ->
+  solve(Fun, State, advanced);
+solve(SCC, State) ->
+  solve(SCC, State, simple).
+
+solve([Fun], State, simple) ->
   ?debug("============ Analyzing Fun: ~w ===========\n",
 	 [debug_lookup_name(Fun)]),
   solve_fun(Fun, dict:new(), State);
-solve([_|_] = SCC, State) ->
+solve([_|_] = SCC, State, simple) ->
   ?debug("============ Analyzing SCC: ~w ===========\n",
 	 [[debug_lookup_name(F) || F <- SCC]]),
-  solve_scc(SCC, dict:new(), State, false).
+  solve_scc(SCC, dict:new(), State, false);
+solve([Fun], State, advanced) ->
+  ?debug("============ Try advanced Analyzing Fun: ~w ===========\n",
+	 [debug_lookup_name(Fun)]),
+  advanced_solve_fun(Fun, dict:new(), State).
 
 -spec solve_fun(type_var(), type_dict(), state()) -> type_dict().
 
@@ -1682,7 +1717,7 @@ solve_fun(Fun, FunMap, State) ->
   Deps = get_deps(Cs),
   Ref = mk_constraint_ref(Fun, Deps),
   %% Note that functions are always considered to succeed.
-  {ok, MapDict, NewMap} = solve_ref_or_list(Ref, FunMap, dict:new(), State),
+  {ok, _MapDict, NewMap} = solve_ref_or_list(Ref, FunMap, dict:new(), State),
   NewType = lookup_type(Fun, NewMap),
   NewFunMap1 = case state__get_rec_var(Fun, State) of
 		 error -> FunMap;
@@ -1958,6 +1993,69 @@ solve_subtype(Type, Inf, Map, Opaques) ->
 	  error
       end.
   %% end.
+
+%% ============================================================================
+%%
+%%  Advanced solving utilities.
+%%
+%% ============================================================================
+
+-spec advanced_solve_fun(type_var(), type_dict(), state()) -> type_dict().
+
+advanced_solve_fun(Fun, FunMap, State) ->
+  Cs = state__get_cs(Fun, State),
+  FunVar = t_var_name(Fun),
+  Check = check_cs(Cs),
+  SelfRec = state__is_self_rec(Fun, State),
+  case {Check, SelfRec} of
+    {{true, Clauses}, false} ->
+      ?debug("============ Advanced Analysis ===========\n",[]),
+      Maps = [Map || {ok, Map} <-
+		       [solve_one_clause(Clause, FunMap, State, FunVar) ||
+			 Clause <- Clauses]],
+      NewType = case Maps of
+		  [] ->
+		    Arity = state__fun_arity(Fun, State),
+		    t_fun(Arity, t_none());
+		  Maps ->
+		    construct_intersection_type(Maps, FunVar)
+		end,
+      ?debug("INTERSECTION Type for ~p:\n~s\n",
+	     [debug_lookup_name(Fun), erl_types:t_to_string(NewType)]),
+      NewFunMap1 = case state__get_rec_var(Fun, State) of
+		     error -> FunMap;
+		     {ok, Var} -> enter_type(Var, NewType, FunMap)
+		   end,
+      enter_type(Fun, NewType, NewFunMap1);
+    _ ->
+      ?debug("============ Real Degrading in simple Analysis ===========\n",[]),
+      solve_fun(Fun, FunMap, State)
+  end.
+
+solve_one_clause(Clause, FunMap, State, _FunVar) ->
+  ?debug("Solving a single CLAUSE\n",[]),
+  case solve_ref_or_list(Clause, FunMap, dict:new(), State) of
+    {ok, _MapDict, Map} ->
+      ?debug("CLAUSE type:\n~s\n",
+	     [erl_types:t_to_string(lookup_type(_FunVar, Map))]),
+      {ok, Map};
+    {error, _Error} ->
+      ?debug("CLAUSE failed\n~p\n",[dict:to_list(_Error)])
+  end.
+
+check_cs(Cs) ->
+  case mk_disj_norm_form(Cs) of
+    #constraint_list{list = List, type = disj} ->
+      {true, List};
+    _ -> false
+  end.
+
+construct_intersection_type([Map0|Maps], FunVar) ->
+  Fun0 = lookup_type(FunVar, Map0),
+  lists:foldl(fun(Map, AccIn) ->
+		  Fun = lookup_type(FunVar, Map),
+		  erl_types:t_intersection(AccIn, Fun)
+	      end, Fun0, Maps).
 
 %% ============================================================================
 %%
@@ -2417,14 +2515,14 @@ mk_constraint_ref(Id, Deps) ->
   #constraint_ref{id = Id, deps = Deps}.
 
 mk_constraint_list(Type, List) ->
-  List1 = ordsets:from_list(lift_lists(Type, List)),
-  List2 = ordsets:filter(fun(X) -> get_deps(X) =/= [] end, List1),
-  Deps = calculate_deps(List2),
+  List1 = lift_lists(Type, List),
+  %% List2 = ordsets:filter(fun(X) -> get_deps(X) =/= [] end, List1),
+  Deps = calculate_deps(List1),
   case Deps =:= [] of
     true -> #constraint_list{type = conj,
 			     list = [mk_constraint(t_any(), eq, t_any())],
 			     deps = []};
-    false -> #constraint_list{type = Type, list = List2, deps = Deps}
+    false -> #constraint_list{type = Type, list = List1, deps = Deps}
   end.
 
 lift_lists(Type, List) ->
@@ -2435,7 +2533,7 @@ lift_lists(Type, [#constraint_list{type = Type, list = List}|Tail], Acc) ->
 lift_lists(Type, [C|Tail], Acc) ->
   lift_lists(Type, Tail, [C|Acc]);
 lift_lists(_Type, [], Acc) ->
-  Acc.
+  lists:reverse(Acc).
 
 update_constraint_list(CL, List) ->
   CL#constraint_list{list = List}.
