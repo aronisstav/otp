@@ -1658,6 +1658,14 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 %%
 %%=============================================================================
 
+-type type_dict() :: dict().
+
+-type constraint_dict_dict() :: dict().
+
+-type state() :: #state{}.
+
+-spec solve([type_var()], state()) -> type_dict().
+
 solve([Fun], State) ->
   ?debug("============ Analyzing Fun: ~w ===========\n",
 	 [debug_lookup_name(Fun)]),
@@ -1667,18 +1675,23 @@ solve([_|_] = SCC, State) ->
 	 [[debug_lookup_name(F) || F <- SCC]]),
   solve_scc(SCC, dict:new(), State, false).
 
+-spec solve_fun(type_var(), type_dict(), state()) -> type_dict().
+
 solve_fun(Fun, FunMap, State) ->
   Cs = state__get_cs(Fun, State),
   Deps = get_deps(Cs),
   Ref = mk_constraint_ref(Fun, Deps),
   %% Note that functions are always considered to succeed.
-  {ok, _MapDict, NewMap} = solve_ref_or_list(Ref, FunMap, dict:new(), State),
+  {ok, MapDict, NewMap} = solve_ref_or_list(Ref, FunMap, dict:new(), State),
   NewType = lookup_type(Fun, NewMap),
   NewFunMap1 = case state__get_rec_var(Fun, State) of
 		 error -> FunMap;
 		 {ok, Var} -> enter_type(Var, NewType, FunMap)
 	       end,
   enter_type(Fun, NewType, NewFunMap1).
+
+-spec solve_scc([type_var()], type_dict(), state(), boolean()) ->
+		   type_dict().
 
 solve_scc(SCC, Map, State, TryingUnit) ->
   State1 = state__mark_as_non_self_rec(SCC, State),
@@ -1717,6 +1730,8 @@ solve_scc(SCC, Map, State, TryingUnit) ->
       solve_scc(SCC, Map2, State, TryingUnit)
   end.
 
+-spec scc_fold_fun(type_var(), type_dict(), state()) -> type_dict().
+
 scc_fold_fun(F, FunMap, State) ->
   Deps = get_deps(state__get_cs(F, State)),
   Cs = mk_constraint_ref(F, Deps),
@@ -1733,6 +1748,10 @@ scc_fold_fun(F, FunMap, State) ->
   ?debug("Done solving for function ~w :: ~s\n", [debug_lookup_name(F),
 						  format_type(NewType)]),
   NewFunMap.
+
+-spec solve_ref_or_list(constr(), type_dict(), constraint_dict_dict(),
+			state()) -> {ok, constraint_dict_dict(), type_dict()} |
+				    {'error', type_dict()}.
 
 solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
 		  Map, MapDict, State) ->
@@ -1796,6 +1815,11 @@ solve_ref_or_list(#constraint_list{type=Type, list = Cs, deps = Deps, id = Id},
       solve_clist(Cs, Type, Id, Deps, MapDict, Map, State)
   end.
 
+-spec solve_self_recursive(constr(), type_dict(), constraint_dict_dict(),
+			   type_var(), erl_types:erl_type(), state()) ->
+			      {ok, constraint_dict_dict(), type_dict()} |
+			      {error, type_dict()}.
+
 solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State) ->
   ?debug("Solving self recursive ~w\n", [debug_lookup_name(Id)]),
   {ok, RecVar} = state__get_rec_var(Id, State),
@@ -1825,6 +1849,11 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State) ->
 	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType, State)
       end
   end.
+
+-spec solve_clist([constr()], 'conj' | 'disj', {'list', dep()}, [integer()],
+		  constraint_dict_dict(), type_dict(), state()) ->
+		     {ok, constraint_dict_dict(), type_dict()} |
+                     {error, constraint_dict_dict()}.
 
 solve_clist(Cs, conj, Id, Deps, MapDict, Map, State) ->
   case solve_cs(Cs, Map, MapDict, State) of
@@ -1856,6 +1885,10 @@ solve_clist(Cs, disj, Id, _Deps, MapDict, Map, State) ->
       {ok, dict:store(Id, NewMap, NewMapDict), NewMap}
   end.
 
+-spec solve_cs([constr()], type_dict(), constraint_dict_dict(), state()) ->
+		  {ok, constraint_dict_dict(), type_dict()} |
+		  {error, type_dict()}.
+
 solve_cs([#constraint_ref{} = C|Tail], Map, MapDict, State) ->
   case solve_ref_or_list(C, Map, MapDict, State) of
     {ok, NewMapDict, Map1} -> solve_cs(Tail, Map1, NewMapDict, State);
@@ -1882,6 +1915,9 @@ solve_cs([#constraint{} = C|Tail], Map, MapDict, State) ->
 solve_cs([], Map, MapDict, _State) ->
   {ok, MapDict, Map}.
 
+-spec solve_one_c(constraint(), type_dict(), [erl_types:erl_type()]) ->
+		     {ok, type_dict()} | 'error'.
+
 solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
   LhsType = lookup_type(Lhs, Map),
   RhsType = lookup_type(Rhs, Map),
@@ -1901,6 +1937,9 @@ solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
 	  end
       end
   end.
+
+-spec solve_subtype(erl_types:erl_type(), erl_types:erl_type(), type_dict(),
+		    [erl_types:erl_type()]) -> {ok, type_dict()} | 'error'.
 
 solve_subtype(Type, Inf, Map, Opaques) ->
   %% case cerl:is_literal(Type) of
