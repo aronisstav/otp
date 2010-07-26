@@ -3017,7 +3017,7 @@ t_subtract(?product(Elements1) = T1, ?product(Elements2)) ->
       NewElements = t_subtract_lists(Elements1, Elements2),
       case [E || E <- NewElements, E =/= ?none] of
 	[] -> ?none;
-	[_] -> t_product(replace_nontrivial_element(Elements1, NewElements));
+	[_] -> ?product(replace_nontrivial_element(Elements1, NewElements));
 	_ -> T1
       end
   end;
