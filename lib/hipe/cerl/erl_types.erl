@@ -186,6 +186,8 @@
 	 t_subtract_list/2,
 	 t_sup/1,
 	 t_sup/2,
+	 t_intersection/2,
+	 t_get_intersections/1,
 	 t_tid/0,
 	 t_timeout/0,
 	 t_to_string/1,
@@ -319,8 +321,9 @@
 -define(atom(Set),                 #c{tag=?atom_tag, elements=Set}).
 -define(bitstr(Unit, Base),        #c{tag=?binary_tag, elements=[Unit,Base]}).
 -define(float,                     ?number(?any, ?float_qual)).
--define(function(Domain, Range),   #c{tag=?function_tag, 
-				      elements=[Domain, Range]}).
+-define(function(List),            #c{tag=?function_tag,
+				      elements=List}).
+-define(function(Domain, Range),   ?function([{Domain,Range}])).
 -define(identifier(Types),         #c{tag=?identifier_tag, elements=Types}).
 -define(integer(Types),            ?number(Types, ?integer_qual)).
 -define(int_range(From, To),       ?integer(#int_rng{from=From, to=To})).
@@ -471,8 +474,11 @@ t_contains_opaque(?unit)                    -> false;
 t_contains_opaque(?atom(_Set))              -> false;
 t_contains_opaque(?bitstr(_Unit, _Base))    -> false;
 t_contains_opaque(?float)                   -> false;
-t_contains_opaque(?function(Domain, Range)) ->
-  t_contains_opaque(Domain) orelse t_contains_opaque(Range);
+t_contains_opaque(?function(List)) ->
+  Fun = fun({Domain, Range}) ->
+	    t_contains_opaque(Domain) orelse t_contains_opaque(Range)
+	end,
+  lists:any(Fun, List);
 t_contains_opaque(?identifier(_Types))      -> false;
 t_contains_opaque(?integer(_Types))         -> false;
 t_contains_opaque(?int_range(_From, _To))   -> false;
@@ -603,9 +609,10 @@ t_opaque_tuple_tags(OpaqueStruct) ->
 %% XXX: Same as t_unopaque
 -spec t_struct_from_opaque(erl_type(), [erl_type()]) -> erl_type().
 
-t_struct_from_opaque(?function(Domain, Range), Opaques) ->
-  ?function(t_struct_from_opaque(Domain, Opaques),
-	    t_struct_from_opaque(Range, Opaques));
+t_struct_from_opaque(?function(List), Opaques) ->
+  NewList = [{t_struct_from_opaque(Domain, Opaques),
+	      t_struct_from_opaque(Range, Opaques)} || {Domain, Range} <- List],
+  ?function(NewList);
 t_struct_from_opaque(?list(Types, Term, Size), Opaques) ->
   ?list(t_struct_from_opaque(Types, Opaques), Term, Size);
 t_struct_from_opaque(?opaque(_) = T, Opaques) ->
@@ -668,10 +675,14 @@ t_solve_remote(Type, ExpTypes, Records) ->
   {RT, _RR} = t_solve_remote(Type, ExpTypes, Records, []),
   RT.
 
-t_solve_remote(?function(Domain, Range), ET, R, C) ->
-  {RT1, RR1} = t_solve_remote(Domain, ET, R, C),
-  {RT2, RR2} = t_solve_remote(Range, ET, R, C),
-  {?function(RT1, RT2), RR1 ++ RR2};
+t_solve_remote(?function(List), ET, R, C) ->
+  Fold = fun({Domain, Range}, {InList, InRR}) ->
+	     {RT1, RR1} = t_solve_remote(Domain, ET, R, C),
+	     {RT2, RR2} = t_solve_remote(Range, ET, R, C),
+	     {[{RT1, RT2} |InList], RR1 ++ RR2 ++ InRR}
+	 end,
+  {OutList, OutRR} = lists:foldl(Fold, {[],[]}, List),
+  {?function(lists:reverse(OutList)), OutRR};
 t_solve_remote(?list(Types, Term, Size), ET, R, C) ->
   {RT, RR} = t_solve_remote(Types, ET, R, C),
   {?list(RT, Term, Size), RR};
@@ -1038,8 +1049,11 @@ t_matchstate_update_slot(New, Type, Slot) ->
 t_fun() ->
   ?function(?any, ?any).
 
--spec t_fun(erl_type()) -> erl_type().
+-spec t_fun(erl_type())                  -> erl_type();
+	   ([{[erl_type()],erl_type()}]) -> erl_type().
 
+t_fun(List) when is_list(List) ->
+  ?function([{?product(Domain), Range} || {Domain, Range} <- List]);
 t_fun(Range) ->
   ?function(?any, Range).
 
@@ -1055,23 +1069,32 @@ t_fun(Arity, Range) when is_integer(Arity), 0 =< Arity, Arity =< 255 ->
 t_fun_args(?function(?any, _)) ->
   unknown;
 t_fun_args(?function(?product(Domain), _)) when is_list(Domain) ->
-  Domain.
+  Domain;
+t_fun_args(?function(List)) ->
+  Fun = fun({Domain, _}, TypeAcc) -> t_sup(Domain, TypeAcc) end,
+  ?product(Domain) = lists:foldl(Fun, ?none, List),
+  Domain;
+t_fun_args(Crasher) ->
+  erlang:error({crasher, Crasher}).
 
 -spec t_fun_arity(erl_type()) -> 'unknown' | non_neg_integer().
 
 t_fun_arity(?function(?any, _)) ->
   unknown;
-t_fun_arity(?function(?product(Domain), _)) ->
+t_fun_arity(?function([{?product(Domain), _}|_])) ->
   length(Domain).
 
 -spec t_fun_range(erl_type()) -> erl_type().
 
 t_fun_range(?function(_, Range)) ->
-  Range.
+  Range;
+t_fun_range(?function(List)) ->
+  Fun = fun({_, Range}, TypeAcc) -> t_sup(Range, TypeAcc) end,
+  lists:foldl(Fun, ?none, List).
 
 -spec t_is_fun(erl_type()) -> boolean().
 
-t_is_fun(?function(_, _)) -> true;
+t_is_fun(?function(_)) -> true;
 t_is_fun(_) -> false.
 
 %%-----------------------------------------------------------------------------
@@ -1700,8 +1723,11 @@ t_var_name(?var(Id)) -> Id.
 -spec t_has_var(erl_type()) -> boolean().
 
 t_has_var(?var(_)) -> true;
-t_has_var(?function(Domain, Range)) ->
-  t_has_var(Domain) orelse t_has_var(Range);
+t_has_var(?function(List)) ->
+  Fun = fun({Domain, Range}) ->
+	    t_has_var(Domain) orelse t_has_var(Range)
+	      end,
+  lists:any(Fun, List);
 t_has_var(?list(Contents, Termination, _)) ->
   t_has_var(Contents) orelse t_has_var(Termination);
 t_has_var(?product(Types)) -> t_has_var_list(Types);
@@ -1729,8 +1755,12 @@ t_collect_vars(T) ->
 
 t_collect_vars(?var(_) = Var, Acc) ->
   ordsets:add_element(Var, Acc);
-t_collect_vars(?function(Domain, Range), Acc) ->
-  ordsets:union(t_collect_vars(Domain, Acc), t_collect_vars(Range, []));
+t_collect_vars(?function(List), Acc) ->
+  Fun = fun({Domain, Range}, AccIn) ->
+	    ordsets:union(t_collect_vars(Domain, AccIn),
+			  t_collect_vars(Range, []))
+	end,
+  lists:foldl(Fun, Acc, List);
 t_collect_vars(?list(Contents, Termination, _), Acc) ->
   ordsets:union(t_collect_vars(Contents, Acc), t_collect_vars(Termination, []));
 t_collect_vars(?product(Types), Acc) ->
@@ -1919,6 +1949,83 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 %%=============================================================================
 
 %%-----------------------------------------------------------------------------
+%% Intersection
+%%
+
+-spec t_intersection(erl_type(), erl_type()) -> erl_type().
+
+t_intersection(?function(List1), ?function(List2)) ->
+  ?function(remove_subdomains(List1, List2));
+t_intersection(T, T) ->
+  T;
+t_intersection(_, _) ->
+  ?none.
+
+remove_subdomains(List) ->
+  remove_subdomains(List, [], []).
+
+remove_subdomains(List1, List2) ->
+  remove_subdomains(List1, List2, []).
+
+remove_subdomains([], [],  Acc) ->
+  remove_redundant(Acc);
+remove_subdomains([{?any, RangeA}| Rest], List2,  Acc) ->
+  RestRanges  = [Range || {_, Range} <- Rest],
+  List2Ranges = [Range || {_, Range} <- List2],
+  NewRangeA = t_sup([t_sup([RangeA| RestRanges])| List2Ranges]),
+  remove_redundant([{?any, NewRangeA}|Acc]);
+remove_subdomains([], List2,  Acc) ->
+  remove_subdomains(List2, [], Acc);
+remove_subdomains([{DomainA, RangeA}| Rest], List2, Acc) ->
+  Pred = fun({Domain, _}) -> t_is_subtype(Domain, DomainA) end,
+  {SubDomsRest, NonSubDomsRest} = lists:partition(Pred, Rest),
+  {SubDomsList2, NonSubDomsList2} = lists:partition(Pred, List2),
+  Map = fun({Domain, Range}) -> {t_subtract(Domain, DomainA), Range} end,
+  ValidRest = lists:map(Map, NonSubDomsRest),
+  ValidList2 = lists:map(Map, NonSubDomsList2),
+  Fold = fun({_, Range}, RangeAcc) -> t_sup(Range, RangeAcc) end,
+  NewRangeA = lists:foldl(Fold, lists:foldl(Fold, RangeA, SubDomsRest),
+			  SubDomsList2),
+  remove_subdomains(ValidRest, ValidList2, [{DomainA, NewRangeA}| Acc]).
+
+remove_redundant(List) ->
+  remove_redundant(List, []).
+
+remove_redundant([], Acc) ->
+  Acc;
+remove_redundant([{DomainA, RangeA} = Clause| Rest], Acc) ->
+  NewRest = [{DomainB, RangeB} || {DomainB, RangeB} <- Rest,
+				  (not t_is_equal(RangeB, RangeA)) orelse
+				    (not t_is_equal(DomainB, DomainA))],
+  remove_redundant(NewRest, [Clause| Acc]).
+
+none_or_has_none(?none) -> true;
+none_or_has_none(?product(List)) -> lists:member(?none, List);
+none_or_has_none(?any) -> false.
+
+collapse_clauses(List) ->
+  lists:foldl(fun({Domain, Range}, {DomAcc, RangeAcc}) ->
+		  {t_sup(Domain, DomAcc), t_sup(Range, RangeAcc)}
+	      end, {?none, ?none}, List).
+
+expand_domains(List) ->
+  expand_domains(List, []).
+
+expand_domains([], Acc) ->
+  remove_subdomains(lists:append(lists:reverse(Acc)));
+expand_domains([{Domain, Range}|Rest], Acc) ->
+  Clauses = [{DomainElement, Range} || DomainElement <- t_elements(Domain)],
+  expand_domains(Rest, [Clauses| Acc]).
+
+-spec t_get_intersections(erl_type()) -> [{erl_type(),[erl_type()]}].
+
+t_get_intersections(?function(List)) ->
+  [format_intersection(Intr) || Intr <- List].
+
+format_intersection({?any, _RetType} = Intr) -> Intr;
+format_intersection({?product(ArgTypes), RetType}) -> {ArgTypes, RetType}.
+
+%%-----------------------------------------------------------------------------
 %% Supremum
 %%
 
@@ -1948,9 +2055,8 @@ t_sup(?atom(Set1), ?atom(Set2)) ->
   ?atom(set_union(Set1, Set2));
 t_sup(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   t_bitstr(gcd(gcd(U1, U2), abs(B1-B2)), lists:min([B1, B2]));
-t_sup(?function(Domain1, Range1), ?function(Domain2, Range2)) ->
-  %% The domain is either a product or any.
-  ?function(t_sup(Domain1, Domain2), t_sup(Range1, Range2));
+t_sup(?function(_) = Fun1, ?function(_) = Fun2) ->
+  sup_function(Fun1, Fun2);
 t_sup(?identifier(Set1), ?identifier(Set2)) ->
   ?identifier(set_union(Set1, Set2));
 t_sup(?opaque(Set1), ?opaque(Set2)) ->
@@ -2049,6 +2155,105 @@ t_sup_lists([T1|Left1], [T2|Left2]) ->
 t_sup_lists([], []) ->
   [].
 
+%% -define(l_db, 1).
+
+-ifdef(l_db).
+-define(l_debug(String, Args), io:format(String, Args)).
+-else.
+-define(l_debug(__String, __Args), ok).
+-endif.
+
+sup_function(?function(List1), ?function(List2)) ->
+  Infima = infima_domains(List1, List2, keep),
+  ?l_debug("InfDom\t: ~p\n",[Infima]),
+  ?function(find_ranges(Infima, List1, List2, true, fun t_sup/2)).
+
+infima_domains(List1, List2, EscapedPolicy) ->
+  ExpList1 = expand_domains(List1),
+  ExpList2 = expand_domains(List2),
+  {Esc1, Inf1} = infima_domains(ExpList1, ExpList2, [], []),
+  %% ?l_debug("Inf1\t: ~p\n",[lists:map(fun t_to_string/1, Inf1)]),
+  {Esc2, Inf2} = infima_domains(ExpList2, ExpList1, [], []),
+  %% ?l_debug("Inf2\t: ~p\n",[lists:map(fun t_to_string/1, Inf2)]),
+  case EscapedPolicy of
+    keep -> Inf1 ++ Inf2 ++ Esc1 ++ Esc2;
+    drop -> Inf1 ++ Inf2;
+    warn -> if ((Esc1 =/= []) orelse (Esc2 =/= [])) -> escaped;
+	       true -> Inf1 ++ Inf2
+	    end
+  end.
+
+infima_domains([], _, Acc, Escaped) ->
+  %% ?l_debug("Acc\t: ~p\nEsc\t: ~p\n",[Acc, Escaped]),
+  {lists:reverse(Escaped), lists:append(lists:reverse(Acc))};
+infima_domains([{DomainA,_}|Rest], List2, Acc, Escaped) ->
+  %% ?l_debug("From\t: ~p\n",[DomainA]),
+  {Escapes, Infima} = infima_domain(DomainA, List2, Acc, Escaped),
+  %% ?l_debug("Infima\t: ~p\n",[Infima]),
+  NewEscaped = case Escapes of
+		 false -> Escaped;
+		 true  -> [DomainA|Escaped]
+	       end,
+  infima_domains(Rest, List2, [Infima|Acc], NewEscaped).
+
+infima_domain(Domain, List, OuterAcc, Escaped) ->
+  %% io:format("~P\n",[List,7]),
+  infima_domain(Domain, List, OuterAcc, Escaped, []).
+
+infima_domain(_Domain, [], _OuterAcc, _Escaped, Acc) ->
+  %% ?l_debug("Escape!\t: ~p\n",[_Domain]),
+  {true, lists:reverse(Acc)};
+infima_domain(DomainA, [{DomainB, _}| Rest], OuterAcc, Escaped, Acc) ->
+  %% ?l_debug("Against\t: ~p\n",[DomainB]),
+  Infimum = t_inf(DomainA, DomainB, opaque),
+  %% ?l_debug("Infimum\t: ~p\n",[Infimum]),
+  IsMember = lists:member(Infimum, OuterAcc) orelse lists:member(Infimum, Acc)
+    orelse lists:member(Infimum, Escaped),
+  IsEqual = t_is_equal(Infimum, DomainA),
+  %% ?l_debug("Mem: ~p\tEqu: ~p\n",[IsMember, IsEqual]),
+  case none_or_has_none(Infimum) of
+    true -> infima_domain(DomainA, Rest, OuterAcc, Escaped, Acc);
+    false ->
+      case {IsMember, IsEqual} of
+	{true , false} -> infima_domain(DomainA, Rest, OuterAcc, Escaped, Acc);
+	{false, false} -> infima_domain(DomainA, Rest, OuterAcc, Escaped,
+					[Infimum|Acc]);
+	{true ,  true} -> {false, lists:reverse(Acc)};
+	{false,  true} -> {false, lists:reverse([Infimum|Acc])}
+      end
+  end.
+
+find_ranges(Infima, List1, List2, KeepEmpty, Fun) ->
+  Clauses = [assign_range(Domain, List1, List2, KeepEmpty, Fun) ||
+	      Domain <- Infima],
+  case lists:member(dropped, Clauses) of
+    true ->
+      ?l_debug("Dropped\t: ~p\n",[Clauses]),
+      [];
+    false ->
+      ?l_debug("Clauses\t: ~s\n",[t_to_string(?function(Clauses))]),
+      remove_subdomains(Clauses)
+  end.
+
+assign_range(Domain, List1, List2, KeepEmpty, Fun) ->
+  Pred = fun({DomainB,_}) -> not t_is_subtype(Domain, DomainB, opaque) end,
+  Clause1 = lists:dropwhile(Pred, List1),
+  Clause2 = lists:dropwhile(Pred, List2),
+  case KeepEmpty orelse (Clause1 =/= [] andalso Clause2 =/= []) of
+    true ->
+      case {Clause1, Clause2} of
+	{[{_,Range}|_], []} -> {Domain, Range};
+	{[], [{_,Range}|_]} -> {Domain, Range};
+	{[{_,Range1}|_], [{_,Range2}|_]} ->
+	  {Domain, Fun(Range1, Range2)}
+	  %% case Fun(Range1, Range2) of
+	  %%   ?none -> dropped;
+	  %%   Range -> {Domain, Range}
+	  %% end
+      end;
+    false -> dropped
+  end.
+
 sup_tuple_sets(L1, L2) ->
   TotalArities = ordsets:union([Arity || {Arity, _} <- L1],
 			       [Arity || {Arity, _} <- L2]),
@@ -2128,7 +2333,7 @@ sup_union([], [], N, Acc) ->
 
 force_union(T = ?atom(_)) ->          ?atom_union(T);
 force_union(T = ?bitstr(_, _)) ->     ?bitstr_union(T); 
-force_union(T = ?function(_, _)) ->   ?function_union(T);
+force_union(T = ?function(_)) ->      ?function_union(T);
 force_union(T = ?identifier(_)) ->    ?identifier_union(T);
 force_union(T = ?list(_, _, _)) ->    ?list_union(T);
 force_union(T = ?nil) ->              ?list_union(T);
@@ -2154,7 +2359,7 @@ t_elements(?atom(?any) = T) -> [T];
 t_elements(?atom(Atoms)) ->
   [t_atom(A) || A <- Atoms];
 t_elements(?bitstr(_, _) = T) -> [T];
-t_elements(?function(_, _) = T) -> [T];
+t_elements(?function(_) = T) -> [T];
 t_elements(?identifier(?any) = T) -> [T];
 t_elements(?identifier(IDs)) ->
   [?identifier([T]) || T <- IDs];
@@ -2256,11 +2461,8 @@ t_inf(?bitstr(U1, B1), ?bitstr(U2, B2), _Mode) when U2 > U1 ->
   inf_bitstr(U2, B2, U1, B1);
 t_inf(?bitstr(U1, B1), ?bitstr(U2, B2), _Mode) ->
   inf_bitstr(U1, B1, U2, B2);
-t_inf(?function(Domain1, Range1), ?function(Domain2, Range2), Mode) ->
-  case t_inf(Domain1, Domain2, Mode) of
-    ?none -> ?none;
-    Domain -> ?function(Domain, t_inf(Range1, Range2, Mode))
-  end;
+t_inf(?function(_) = Fun1, ?function(_) = Fun2, Mode) ->
+  inf_function(Fun1, Fun2, Mode);
 t_inf(?identifier(Set1), ?identifier(Set2), _Mode) ->
   case set_intersection(Set1, Set2) of
     ?none -> ?none;
@@ -2395,6 +2597,18 @@ t_inf(T1, ?opaque(_) = T2, opaque) ->
   end;
 t_inf(#c{}, #c{}, _) ->
   ?none.
+
+inf_function(?function(List1), ?function(List2), Mode) ->
+  Infima = infima_domains(List1, List2, drop),
+  ?l_debug("InfDom\t: ~p\n",[Infima]),
+  Fun = fun(Type1, Type2) -> t_inf(Type1, Type2, Mode) end,
+  Result =
+    case find_ranges(Infima, List1, List2, false, Fun) of
+      []       -> ?none;
+      Clauses  -> ?function(Clauses)
+    end,
+  ?l_debug("InfFun\t: ~s\n",[t_to_string(Result)]),
+  Result.
 
 -spec t_inf_lists([erl_type()], [erl_type()]) -> [erl_type()].
 
@@ -2624,8 +2838,10 @@ t_subst_aux(?list(Contents, Termination, Size), VarMap) ->
 	  ?list(NewContents, NewTermination, Size)
       end
   end;
-t_subst_aux(?function(Domain, Range), VarMap) ->
-  ?function(t_subst_aux(Domain, VarMap), t_subst_aux(Range, VarMap));
+t_subst_aux(?function(List), VarMap) ->
+  NewList = [{t_subst_aux(Domain, VarMap), t_subst_aux(Range, VarMap)} ||
+	      {Domain, Range} <- List],
+  ?function(remove_subdomains(NewList));
 t_subst_aux(?product(Types), VarMap) ->
   ?product([t_subst_aux(T, VarMap) || T <- Types]);
 t_subst_aux(?tuple(?any, ?any, ?any) = T, _VarMap) ->
@@ -2679,7 +2895,12 @@ t_unify(Type, ?var(Id), VarMap, Opaques) ->
     false -> {Type, [{Id, Type} | VarMap]};
     {Id, VarType} -> t_unify(VarType, Type, VarMap, Opaques)
   end;
-t_unify(?function(Domain1, Range1), ?function(Domain2, Range2), VarMap, Opaques) ->
+
+%% Intersectia: To be reviewed.
+
+t_unify(?function(List1), ?function(List2), VarMap, Opaques) ->
+  {Domain1, Range1} = collapse_clauses(List1),
+  {Domain2, Range2} = collapse_clauses(List2),
   {Domain, VarMap1} = t_unify(Domain1, Domain2, VarMap, Opaques),
   {Range, VarMap2} = t_unify(Range1, Range2, VarMap1, Opaques),
   {?function(Domain, Range), VarMap2};
@@ -2883,7 +3104,10 @@ t_subtract(?atom(Set1), ?atom(Set2)) ->
   end;
 t_subtract(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   subtract_bin(t_bitstr(U1, B1), t_inf(t_bitstr(U1, B1), t_bitstr(U2, B2)));
-t_subtract(?function(_, _) = T1, ?function(_, _) = T2) ->
+
+%% Intersectia: To be reviewed.
+
+t_subtract(?function(_List1) = T1, ?function(_List2) = T2) ->
   case t_is_subtype(T1, T2) of
     true -> ?none;
     false -> T1
@@ -3102,13 +3326,72 @@ subtract_bin(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
 -spec t_is_equal(erl_type(), erl_type()) -> boolean().
 
 t_is_equal(T, T)  -> true;
+t_is_equal(?function(List1), ?function(List2)) ->
+  case infima_domains(List1, List2, warn) of
+    escaped -> false;
+    Infima  -> equal_ranges(Infima, List1, List2)
+  end;
 t_is_equal(_, _) -> false.
+
+equal_ranges([], _, _) -> true;
+equal_ranges([Domain| Rest], List1, List2) ->
+  Pred = fun({DomainB,_}) -> t_is_subtype(Domain, DomainB) end,
+  {ok, {_, Range1}} = first(Pred, List1),
+  {ok, {_, Range2}} = first(Pred, List2),
+  case t_is_equal(Range1, Range2) of
+    false -> false;
+    true -> equal_ranges(Rest, List1, List2)
+  end.
+
+first(_Pred, []) -> none;
+first(Pred, [Elem| Rest]) ->
+  case Pred(Elem) of
+    true  -> {ok, Elem};
+    false -> first(Pred, Rest)
+  end.
 
 -spec t_is_subtype(erl_type(), erl_type()) -> boolean().
 
+t_is_subtype(?function(List1), ?function(List2)) ->
+
+  %% This is precise but slow.
+  %% ExpList2 = expand_domains(List2),
+  %% subtyped_ranges(ExpList2, List1);
+
+  {Domain1, Range1} = collapse_clauses(List1),
+  {Domain2, Range2} = collapse_clauses(List2),
+  Inf = fast_fun_inf(Domain1, Range1, Domain2, Range2),
+  ?function(Domain1, Range1) =:= Inf;
+
 t_is_subtype(T1, T2) ->
-  Inf = t_inf(T1, T2),
+  t_is_subtype(T1, T2, structured).
+
+t_is_subtype(T1, T2, Mode) ->
+  Inf = t_inf(T1, T2, Mode),
   t_is_equal(T1, Inf).
+
+%% subtyped_ranges([], _) -> true;
+%% subtyped_ranges([{DomainB, RangeB}| Rest], List1) ->
+%%   Pred = fun({DomainA,_}) -> t_is_subtype(DomainB, DomainA) end,
+%%   case first(Pred, List1) of
+%%     {ok, {_DomainA, RangeA}} ->
+%%       case t_is_subtype(RangeA, RangeB) of
+%% 	true  ->
+%% 	  %% io:format("Success\t: ~p\n", [DomainB]),
+%% 	  subtyped_ranges(Rest, List1);
+%% 	false ->
+%% 	  %% io:format("Fail\t: ~p\n\t  ->\t~p\nagainst\t: ~p\n\t  ->\t~p\n",
+%% 	  %% 	    [DomainB, RangeB, _DomainA, RangeA]),
+%% 	  false
+%%       end;
+%%     none -> subtyped_ranges(Rest, List1)
+%%   end.
+
+fast_fun_inf(Domain1, Range1, Domain2, Range2) ->
+  case t_inf(Domain1, Domain2) of
+    ?none -> ?none;
+    Domain -> ?function(Domain, t_inf(Range1, Range2))
+  end.
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
 
@@ -3183,9 +3466,10 @@ t_limit_k(?list(Elements, Termination, Size), K) ->
       ?list(NewElements1, NewTermination1, _) = TmpList,
       ?list(NewElements1, NewTermination1, ?unknown_qual)
   end;
-t_limit_k(?function(Domain, Range), K) ->
+t_limit_k(?function(List), K) ->
   %% The domain is either a product or any() so we do not decrease the K.
-  ?function(t_limit_k(Domain, K), t_limit_k(Range, K-1));
+  ?function([{t_limit_k(Domain, K), t_limit_k(Range, K-1)} ||
+	      {Domain, Range} <- List]);
 t_limit_k(?product(Elements), K) ->
   ?product([t_limit_k(X, K - 1) || X <- Elements]);
 t_limit_k(?union(Elements), K) ->
@@ -3213,10 +3497,10 @@ t_abstract_records(?list(Contents, Termination, Size), RecDict) ->
 	  ?list(NewContents, NewTermination, Size)
       end
   end;
-t_abstract_records(?function(Domain, Range), RecDict) ->
-  ?function(t_abstract_records(Domain, RecDict), 
-	    t_abstract_records(Range, RecDict));
-t_abstract_records(?product(Types), RecDict) -> 
+t_abstract_records(?function(List), RecDict) ->
+  ?function([{t_abstract_records(Domain, RecDict),
+	      t_abstract_records(Range, RecDict)} || {Domain, Range} <- List]);
+t_abstract_records(?product(Types), RecDict) ->
   ?product([t_abstract_records(T, RecDict) || T <- Types]);
 t_abstract_records(?union(Types), RecDict) -> 
   t_sup([t_abstract_records(T, RecDict) || T <- Types]);
@@ -3242,9 +3526,10 @@ t_abstract_records(T, _RecDict) ->
 
 t_map(Fun, ?list(Contents, Termination, Size)) ->
   Fun(?list(t_map(Fun, Contents), t_map(Fun, Termination), Size));
-t_map(Fun, ?function(Domain, Range)) ->
-  Fun(?function(t_map(Fun, Domain), t_map(Fun, Range)));
-t_map(Fun, ?product(Types)) -> 
+t_map(Fun, ?function(List)) ->
+  Fun(?function([{t_map(Fun, Domain), t_map(Fun, Range)} ||
+		  {Domain, Range} <- List]));
+t_map(Fun, ?product(Types)) ->
   Fun(?product([t_map(Fun, T) || T <- Types]));
 t_map(Fun, ?union(Types)) ->
   Fun(t_sup([t_map(Fun, T) || T <- Types]));
@@ -3302,9 +3587,9 @@ t_to_string(?function(?any, ?any), _RecDict) ->
   "fun()";
 t_to_string(?function(?any, Range), RecDict) ->
   "fun((...) -> " ++ t_to_string(Range, RecDict) ++ ")";
-t_to_string(?function(?product(ArgList), Range), RecDict) ->
-  "fun((" ++ comma_sequence(ArgList, RecDict) ++ ") -> "
-    ++ t_to_string(Range, RecDict) ++ ")";
+t_to_string(?function(List), RecDict) ->
+  Clauses = function_clauses(List, RecDict),
+  "fun(" ++ Clauses ++ ")";
 t_to_string(?identifier(Set), _RecDict) ->
   case Set of
     ?any -> "identifier()";
@@ -3471,6 +3756,20 @@ comma_sequence(Types, RecDict) ->
 union_sequence(Types, RecDict) ->
   List = [t_to_string(T, RecDict) || T <- Types], 
   string:join(List, " | ").
+
+function_clauses(List, RecDict) ->
+  function_clauses(List, RecDict, []).
+
+function_clauses([], _RecDict, Acc) ->
+  string:join(lists:reverse(Acc), "; ");
+function_clauses([{?product(ArgList), Range}| Rest], RecDict, Acc) ->
+  String = "(" ++ comma_sequence(ArgList, RecDict) ++ ") -> " ++
+    t_to_string(Range, RecDict),
+  function_clauses(Rest, RecDict, [String| Acc]);
+function_clauses([{?any, Range}| Rest], RecDict, Acc) ->
+  String = "(...) -> " ++
+    t_to_string(Range, RecDict),
+  function_clauses(Rest, RecDict, [String| Acc]).
 
 %%=============================================================================
 %% 
