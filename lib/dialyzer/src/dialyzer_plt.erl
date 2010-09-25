@@ -46,6 +46,7 @@
 	 insert_types/2,
          insert_exported_types/2,
 	 lookup/2,
+	 clean_lookup/2,
 	 lookup_contract/2,
 	 lookup_callbacks/2,
 	 lookup_module/2,
@@ -165,7 +166,10 @@ lookup_callbacks(#plt{callbacks = Callbacks}, Mod) when is_atom(Mod) ->
 
 -type ret_args_types() :: {erl_types:erl_type(), [erl_types:erl_type()]}.
 
--spec insert_list(plt(), [{mfa() | integer(), ret_args_types()}]) -> plt().
+-type function_type() :: {'fun', erl_types:erl_type()}.
+
+-spec insert_list(plt(), [{mfa() | integer(),
+		  ret_args_types() | function_type()}]) -> plt().
 
 insert_list(#plt{info = Info} = PLT, List) ->
   PLT#plt{info = table_insert_list(Info, List)}.
@@ -173,9 +177,20 @@ insert_list(#plt{info = Info} = PLT, List) ->
 -spec lookup(plt(), integer() | mfa_patt()) ->
         'none' | {'value', ret_args_types()}.
 
-lookup(#plt{info = Info}, {M, F, _} = MFA) when is_atom(M), is_atom(F) ->
+lookup(Plt, Key) ->
+  case clean_lookup(Plt, Key) of
+    none -> none;
+    {value, {'fun', Type}} ->
+      {value, {erl_types:t_fun_range(Type), erl_types:t_fun_args(Type)}};
+    Value -> Value
+  end.
+
+-spec clean_lookup(plt(), integer() | mfa_patt()) ->
+        'none' | {'value', ret_args_types() | function_type()}.
+
+clean_lookup(#plt{info = Info}, {M, F, _} = MFA) when is_atom(M), is_atom(F) ->
   table_lookup(Info, MFA);
-lookup(#plt{info = Info}, Label) when is_integer(Label) ->
+clean_lookup(#plt{info = Info}, Label) when is_integer(Label) ->
   table_lookup(Info, Label).
 
 -spec insert_types(plt(), dict()) -> plt().

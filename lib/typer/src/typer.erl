@@ -536,6 +536,8 @@ get_type_string(F, A, Info, Mode) ->
     case Type of
       {contract, C} -> 
         dialyzer_contracts:contract_to_string(C);
+      {'fun', FunType} ->
+        dialyzer_utils:format_sig(FunType, Info#info.records);
       {RetType, ArgType} ->
 	Sig = erl_types:t_fun(ArgType, RetType),
         dialyzer_utils:format_sig(Sig, Info#info.records)

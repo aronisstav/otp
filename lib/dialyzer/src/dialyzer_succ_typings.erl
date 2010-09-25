@@ -418,7 +418,7 @@ format_succ_types(SuccTypes, Callgraph) ->
 format_succ_types([{Label, Type0}|Left], Callgraph, Acc) ->
   Type = erl_types:t_limit(Type0, ?TYPE_LIMIT+1),
   Id = lookup_name(Label, Callgraph),
-  NewTuple = {Id, {erl_types:t_fun_range(Type), erl_types:t_fun_args(Type)}},
+  NewTuple = {Id, {'fun', Type}},
   format_succ_types(Left, Callgraph, [NewTuple|Acc]);
 format_succ_types([], _Callgraph, Acc) ->
   Acc.
@@ -427,8 +427,8 @@ format_succ_types([], _Callgraph, Acc) ->
 debug_pp_succ_typings(SuccTypes) ->
   ?debug("Succ typings:\n", []),
   [?debug("  ~w :: ~s\n", 
-	  [MFA, erl_types:t_to_string(erl_types:t_fun(ArgT, RetT))])
-   || {MFA, {RetT, ArgT}} <- SuccTypes],
+	  [MFA, erl_types:t_to_string(Type)])
+   || {MFA, {'fun', Type}} <- SuccTypes],
   ?debug("Contracts:\n", []),
   [?debug("  ~w :: ~s\n", 
 	  [MFA, erl_types:t_to_string(erl_types:t_fun(ArgT, RetFun(ArgT)))])
