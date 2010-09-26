@@ -91,6 +91,7 @@
 	 t_fun_args/1,
 	 t_fun_arity/1,
 	 t_fun_range/1,
+	 t_fun_range/2,
 	 t_has_opaque_subtype/1,
 	 t_has_var/1,
 	 t_identifier/0,
@@ -1091,6 +1092,24 @@ t_fun_range(?function(_, Range)) ->
 t_fun_range(?function(List)) ->
   Fun = fun({_, Range}, TypeAcc) -> t_sup(Range, TypeAcc) end,
   lists:foldl(Fun, ?none, List).
+
+-spec t_fun_range(erl_type(), erl_type()) -> erl_type().
+
+t_fun_range(?function(List) = Fun, ?product(_) = ArgTypes) ->
+  case find_range(List, ArgTypes) of
+    {ok, Range} -> Range;
+    none -> t_fun_range(Fun)
+  end;
+t_fun_range(Fun, ArgTypes) ->
+  t_fun_range(Fun, ?product(ArgTypes)).
+
+find_range([], _ArgTypes) ->
+  none;
+find_range([{Domain, Range}| Rest], ArgTypes) ->
+  case t_is_subtype(ArgTypes, Domain) of
+    true  -> {ok, Range};
+    false -> find_range(Rest, ArgTypes)
+  end.
 
 -spec t_is_fun(erl_type()) -> boolean().
 
