@@ -633,6 +633,8 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
       true -> {AnyArgs, t_any()}; % effectively forgets the success typing
       false ->
 	case Sig of
+	  {value, {'fun', Type}} ->
+	    {erl_types:t_fun_args(Type), erl_types:t_fun_range(Type, ArgTypes)};
 	  {value, {SR, SA}} -> {SA, SR};
 	  none -> {AnyArgs, t_any()}
 	end
@@ -3241,16 +3243,16 @@ state__fun_info(external, #state{}) ->
   external;
 state__fun_info({_, _, _} = MFA, #state{plt = PLT}) ->
   {MFA,
-   dialyzer_plt:lookup(PLT, MFA),
+   dialyzer_plt:clean_lookup(PLT, MFA),
    dialyzer_plt:lookup_contract(PLT, MFA),
    t_any()};
 state__fun_info(Fun, #state{callgraph = CG, fun_tab = FunTab, plt = PLT}) ->
   {Sig, Contract} =
     case dialyzer_callgraph:lookup_name(Fun, CG) of
       error ->
-	{dialyzer_plt:lookup(PLT, Fun), none};
+	{dialyzer_plt:clean_lookup(PLT, Fun), none};
       {ok, MFA} ->
-	{dialyzer_plt:lookup(PLT, MFA), dialyzer_plt:lookup_contract(PLT, MFA)}
+	{dialyzer_plt:clean_lookup(PLT, MFA), dialyzer_plt:lookup_contract(PLT, MFA)}
     end,
   LocalRet =
     case dict:fetch(Fun, FunTab) of
