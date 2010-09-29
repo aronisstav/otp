@@ -322,8 +322,7 @@
 -define(atom(Set),                 #c{tag=?atom_tag, elements=Set}).
 -define(bitstr(Unit, Base),        #c{tag=?binary_tag, elements=[Unit,Base]}).
 -define(float,                     ?number(?any, ?float_qual)).
--define(function(List),            #c{tag=?function_tag,
-				      elements=List}).
+-define(function(List),            #c{tag=?function_tag, elements=List}).
 -define(function(Domain, Range),   ?function([{Domain,Range}])).
 -define(identifier(Types),         #c{tag=?identifier_tag, elements=Types}).
 -define(integer(Types),            ?number(Types, ?integer_qual)).
@@ -1970,12 +1969,100 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 
 -spec t_intersection(erl_type(), erl_type()) -> erl_type().
 
+t_intersection(?function(List), ?function(Domain, Range)) ->
+  ?function(add_clause(List, Domain, Range));
 t_intersection(?function(List1), ?function(List2)) ->
   ?function(remove_subdomains(List1, List2));
 t_intersection(T, T) ->
   T;
 t_intersection(_, _) ->
   ?none.
+
+add_clause(List, Domain, Range) ->
+  add_clause(List, Domain, Range, []).
+
+add_clause([{DomainA, RangeA}=Clause|Rest], Domain, Range, Acc) ->
+  case t_is_equal(RangeA, Range) of
+    true ->
+      case combinable(DomainA, Domain) of
+	{yes, NewDomain} ->
+	  NewClauses = lists:reverse(Acc, [{NewDomain, Range}|Rest]),
+	  combine_clauses(NewClauses);
+	no -> add_clause(Rest, Domain, Range, [Clause| Acc])
+      end;
+    false ->
+      case t_is_subtype(Domain, DomainA) of
+	true  ->
+	  NewClauses =
+	    lists:reverse(Acc, [{DomainA, t_sup(RangeA, Range)}|Rest]),
+	  combine_clauses(NewClauses);
+	false -> add_clause(Rest, Domain, Range, [Clause| Acc])
+      end
+  end;
+add_clause([], Domain, Range, Acc) ->
+  combine_clauses(lists:reverse(Acc, [{Domain, Range}])).
+
+combinable(?product(List1), ?product(List2)) ->
+  case one_or_less_diff(List1, List2) of
+    {yes, NewList} -> {yes, ?product(NewList)};
+    no -> no
+  end.
+
+one_or_less_diff(List1, List2) ->
+  one_or_less_diff(List1, List2, []).
+
+one_or_less_diff([], [], Acc) ->
+  {yes, lists:reverse(Acc)};
+one_or_less_diff([Type1| Rest1], [Type2| Rest2], Acc) ->
+  case t_is_equal(Type1, Type2) of
+    true  -> one_or_less_diff(Rest1, Rest2, [Type1| Acc]);
+    false -> zero_diff(Rest1, Rest2, [t_sup(Type1, Type2)| Acc])
+  end.
+
+zero_diff([], [], Acc) ->
+  {yes, lists:reverse(Acc)};
+zero_diff([Type1| Rest1], [Type2| Rest2], Acc) ->
+  case t_is_equal(Type1, Type2) of
+    true  -> zero_diff(Rest1, Rest2, [Type1| Acc]);
+    false -> no
+  end.
+
+combine_clauses(Clauses) ->
+  combine_clauses(Clauses, [], Clauses).
+
+combine_clauses([], Acc, OldClauses) ->
+  NewClauses = lists:reverse(Acc),
+  case NewClauses =:= OldClauses of
+    true  -> NewClauses;
+    false -> combine_clauses(NewClauses, [], NewClauses)
+  end;
+combine_clauses([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
+  case combine_clause(Rest, Domain, Range, Rest) of
+    {yes, NewDomain, NewRest} ->
+      combine_clauses(NewRest, [{NewDomain, Range}| Acc], OldClauses);
+    no ->
+      combine_clauses(Rest, [Clause| Acc], OldClauses)
+  end.
+
+combine_clause(Clauses, Domain, Range, Clauses) ->
+  combine_clause(Clauses, Domain, Range, no, []).
+
+combine_clause([], _Domain, _Range, no, _NewRest) ->
+  no;
+combine_clause([], Domain, _Range, yes, NewRest) ->
+  {yes, Domain, lists:reverse(NewRest)};
+combine_clause([{DomainA, RangeA}= Clause| Rest], Domain, Range, Result, Acc) ->
+  case t_is_equal(RangeA, Range) of
+    true ->
+      case combinable(DomainA, Domain) of
+	{yes, NewDomain} ->
+	  combine_clause(Rest, NewDomain, Range, yes, Acc);
+	no ->
+	  combine_clause(Rest, Domain, Range, Result, [Clause| Acc])
+      end;
+    false ->
+      combine_clause(Rest, Domain, Range, Result, [Clause| Acc])
+  end.
 
 remove_subdomains(List) ->
   remove_subdomains(List, [], []).
@@ -2248,7 +2335,7 @@ find_ranges(Infima, List1, List2, KeepEmpty, Fun) ->
       [];
     false ->
       ?l_debug("Clauses\t: ~s\n",[t_to_string(?function(Clauses))]),
-      remove_subdomains(Clauses)
+      combine_clauses(Clauses)
   end.
 
 assign_range(Domain, List1, List2, KeepEmpty, Fun) ->
