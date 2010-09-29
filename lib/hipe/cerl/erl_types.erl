@@ -1096,19 +1096,16 @@ t_fun_range(?function(List)) ->
 -spec t_fun_range(erl_type(), erl_type()) -> erl_type().
 
 t_fun_range(?function(List) = Fun, ?product(_) = ArgTypes) ->
-  case find_range(List, ArgTypes) of
-    {ok, Range} -> Range;
-    none -> t_fun_range(Fun)
-  end;
+  find_range(List, ArgTypes, ?none);
 t_fun_range(Fun, ArgTypes) ->
   t_fun_range(Fun, ?product(ArgTypes)).
 
-find_range([], _ArgTypes) ->
-  none;
-find_range([{Domain, Range}| Rest], ArgTypes) ->
-  case t_is_subtype(ArgTypes, Domain) of
-    true  -> {ok, Range};
-    false -> find_range(Rest, ArgTypes)
+find_range([], _ArgTypes, Range) ->
+  Range;
+find_range([{Domain, Range}| Rest], ArgTypes, AccRange) ->
+  case none_or_has_none(t_inf(Domain, ArgTypes)) of
+    true  -> find_range(Rest, ArgTypes, AccRange);
+    false -> find_range(Rest, ArgTypes, t_sup(AccRange, Range))
   end.
 
 -spec t_is_fun(erl_type()) -> boolean().
