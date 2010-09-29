@@ -2006,7 +2006,11 @@ combinable(?product(List1), ?product(List2)) ->
   case one_or_less_diff(List1, List2) of
     {yes, NewList} -> {yes, ?product(NewList)};
     no -> no
-  end.
+  end;
+combinable(T, T) ->
+  {yes, T};
+combinable(_, _) ->
+  no.
 
 one_or_less_diff(List1, List2) ->
   one_or_less_diff(List1, List2, []).
