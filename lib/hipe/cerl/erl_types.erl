@@ -1095,16 +1095,32 @@ t_fun_range(?function(List)) ->
 -spec t_fun_range(erl_type(), erl_type()) -> erl_type().
 
 t_fun_range(?function(List) = Fun, ?product(_) = ArgTypes) ->
-  find_range(List, ArgTypes, ?none);
+  find_range(List, t_elements(ArgTypes));
 t_fun_range(Fun, ArgTypes) ->
   t_fun_range(Fun, ?product(ArgTypes)).
 
-find_range([], _ArgTypes, Range) ->
+find_range(List, EArgTypes) ->
+  find_range(List, EArgTypes, ?none).
+
+find_range(_List, [], AccRange) ->
+  AccRange;
+find_range(List, [Domain| Rest], AccRange) ->
+  NewAccRange = t_sup(AccRange, find_range_1(List, Domain, ?none)),
+  find_range(List, Rest, NewAccRange).
+
+find_range_1([], _ArgTypes, Range) ->
   Range;
-find_range([{Domain, Range}| Rest], ArgTypes, AccRange) ->
+find_range_1([{Domain, Range}| Rest], ArgTypes, AccRange) ->
   case none_or_has_none(t_inf(Domain, ArgTypes)) of
-    true  -> find_range(Rest, ArgTypes, AccRange);
-    false -> find_range(Rest, ArgTypes, t_sup(AccRange, Range))
+    true  ->
+      find_range_1(Rest, ArgTypes, AccRange);
+    false ->
+      NewAccRange = t_sup(AccRange, Range),
+      NewDomain = t_subtract(ArgTypes, Domain),
+      case none_or_has_none(NewDomain) of
+	true  -> NewAccRange;
+	false -> find_range_1(Rest, ArgTypes, NewAccRange)
+      end
   end.
 
 -spec t_is_fun(erl_type()) -> boolean().
