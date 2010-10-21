@@ -188,6 +188,7 @@
 	 t_sup/1,
 	 t_sup/2,
 	 t_intersection/2,
+	 %% t_fun_combine/1,
 	 t_get_intersections/1,
 	 t_tid/0,
 	 t_timeout/0,
@@ -1073,9 +1074,7 @@ t_fun_args(?function(?product(Domain), _)) when is_list(Domain) ->
 t_fun_args(?function(List)) ->
   Fun = fun({Domain, _}, TypeAcc) -> t_sup(Domain, TypeAcc) end,
   ?product(Domain) = lists:foldl(Fun, ?none, List),
-  Domain;
-t_fun_args(Crasher) ->
-  erlang:error({crasher, Crasher}).
+  Domain.
 
 -spec t_fun_arity(erl_type()) -> 'unknown' | non_neg_integer().
 
@@ -1094,34 +1093,63 @@ t_fun_range(?function(List)) ->
 
 -spec t_fun_range(erl_type(), erl_type()) -> erl_type().
 
-t_fun_range(?function(List) = Fun, ?product(_) = ArgTypes) ->
-  find_range(List, t_elements(ArgTypes));
 t_fun_range(Fun, ArgTypes) ->
-  t_fun_range(Fun, ?product(ArgTypes)).
+  t_fun_range(Fun, ArgTypes, loose).
 
-find_range(List, EArgTypes) ->
-  find_range(List, EArgTypes, ?none).
+t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes, Mode) ->
+  find_range(Fun, ArgTypes, Mode);
+t_fun_range(?function(_)=Fun, ?any, _Mode) ->
+  t_fun_range(Fun);
+t_fun_range(?function(_) = Fun, ArgTypes, Mode) ->
+  t_fun_range(Fun, ?product(ArgTypes), Mode).
 
-find_range(_List, [], AccRange) ->
+find_range(?function(List), ArgTypes, Mode) ->
+  find_range(t_elements(ArgTypes), List, Mode, ?none).
+
+find_range([], _Clauses, _Mode, AccRange) ->
   AccRange;
-find_range(List, [Domain| Rest], AccRange) ->
-  NewAccRange = t_sup(AccRange, find_range_1(List, Domain, ?none)),
-  find_range(List, Rest, NewAccRange).
+find_range([Domain|Rest], Clauses, Mode, AccRange) ->
+  NewRange = find_range_1(Domain, Clauses, Mode, ?none),
+  find_range(Rest, Clauses, Mode, t_sup(AccRange, NewRange)).
 
-find_range_1([], _ArgTypes, Range) ->
-  Range;
-find_range_1([{Domain, Range}| Rest], ArgTypes, AccRange) ->
-  case none_or_has_none(t_inf(Domain, ArgTypes)) of
-    true  ->
-      find_range_1(Rest, ArgTypes, AccRange);
+find_range_1(_Domain, [], _Mode, AccRange) ->
+  AccRange;
+find_range_1(Domain, [{DomainA, Range}|Rest], Mode, AccRange) ->
+  case overlap(Domain, DomainA) of
     false ->
-      NewAccRange = t_sup(AccRange, Range),
-      NewDomain = t_subtract(ArgTypes, Domain),
-      case none_or_has_none(NewDomain) of
-	true  -> NewAccRange;
-	false -> find_range_1(Rest, ArgTypes, NewAccRange)
+      find_range_1(Domain, Rest, Mode, AccRange);
+    true ->
+      case t_is_subtype(Domain, DomainA) of
+	false ->
+	  find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange));
+	true ->
+	  case Mode of
+	    loose ->
+	      find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange));
+	    strict ->
+	      Range
+	  end
       end
   end.
+
+overlap(?any, _) ->
+  true;
+overlap(_, ?any) ->
+  true;
+overlap(?product(List1), ?product(List2)) when is_list(List1), is_list(List2)->
+  overlap_lists(List1, List2);
+overlap(_, _) ->
+  false.
+
+overlap_lists([], []) ->
+  true;
+overlap_lists([Type1|Rest1], [Type2|Rest2]) ->
+  case t_inf(Type1, Type2) of
+    ?none -> false;
+    _ -> overlap_lists(Rest1, Rest2)
+  end;
+overlap_lists(_, _) ->
+  false.
 
 -spec t_is_fun(erl_type()) -> boolean().
 
@@ -1983,162 +2011,392 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 %% Intersection
 %%
 
+%% -define(IDEBUG,true).
+-ifdef(IDEBUG).
+-define(idebug(F, A), io:format(F,A)).
+-else.
+-define(idebug(_F,_A), ok).
+-endif.
+
+%% -spec t_fun_combine(erl_type()) -> erl_type().
+
+%% t_fun_combine(?function(Clauses)) ->
+%%   ?function(combine_clauses(Clauses)).
+
 -spec t_intersection(erl_type(), erl_type()) -> erl_type().
 
-t_intersection(?function(List), ?function(Domain, Range)) ->
-  ?function(add_clause(List, Domain, Range));
-t_intersection(?function(List1), ?function(List2)) ->
-  ?function(remove_subdomains(List1, List2));
-t_intersection(T, T) ->
-  T;
+t_intersection(?function(Clauses1)=Fun1, ?function(Clauses2)=Fun2) ->
+  ?idebug("INTERSECTION\n",[]),
+  ?idebug("F1\t: ~s\nF2\t: ~s\n",[t_to_string(Fun1), t_to_string(Fun2)]),
+  case t_is_subtype(Fun1, Fun2) of
+    true ->
+      ?idebug("F1 subtype of F2\n",[]),
+      Fun2;
+    false ->
+      case t_is_subtype(Fun2, Fun1) of
+	true ->
+	  ?idebug("F2 subtype of F1\n",[]),
+	  Fun1;
+	false ->
+	  ?idebug("Real Intersection\n",[]),
+	  Clauses = add_clauses(Clauses1, Clauses2),
+	  ?idebug("Precomb\t: ~s\n",[t_to_string(?function(Clauses))]),
+	  %% ?function(combine_duplicate_doms(Clauses))
+	  ?function(combine_clauses(Clauses))
+      end
+  end;
 t_intersection(_, _) ->
   ?none.
 
-add_clause(List, Domain, Range) ->
-  add_clause(List, Domain, Range, []).
-
-add_clause([{DomainA, RangeA}=Clause|Rest], Domain, Range, Acc) ->
-  case t_is_equal(RangeA, Range) of
-    true ->
-      case combinable(DomainA, Domain) of
-	{yes, NewDomain} ->
-	  NewClauses = lists:reverse(Acc, [{NewDomain, Range}|Rest]),
-	  combine_clauses(NewClauses);
-	no -> add_clause(Rest, Domain, Range, [Clause| Acc])
-      end;
+add_clauses(Clauses1, Clauses2) ->
+  case expand_clauses(Clauses1, Clauses2) of
     false ->
-      case t_is_subtype(Domain, DomainA) of
-	true  ->
-	  NewClauses =
-	    lists:reverse(Acc, [{DomainA, t_sup(RangeA, Range)}|Rest]),
-	  combine_clauses(NewClauses);
-	false -> add_clause(Rest, Domain, Range, [Clause| Acc])
+      case {check_arity(Clauses1), check_arity(Clauses2)} of
+	{N, N} when is_integer(N), N>0 ->
+	  ?idebug("add_clauses: No Overlap\n",[]),
+	  Clauses1 ++ Clauses2;
+	{_, _} ->
+	  {Domain1, Range1} = collapse_clauses(Clauses1),
+	  {Domain2, Range2} = collapse_clauses(Clauses2),
+	  [{t_sup(Domain1, Domain2), t_sup(Range1, Range2)}]
+      end;
+    {true, ExpClauses1} ->
+      ?idebug("add_clauses: Overlap. Expanding...\n",[]),
+      {true, ExpClauses2} = expand_clauses(Clauses2, Clauses1),
+      ?idebug("F1\t: ~s\nF2\t: ~s\n",
+	      [t_to_string(?function(ExpClauses1)),
+	       t_to_string(?function(ExpClauses2))]),
+      ?idebug("add_clauses: Adding clauses...\n",[]),
+      add_clauses_1(ExpClauses1, ExpClauses2)
+  end.
+
+expand_clauses(Clauses1, Clauses2) ->
+  expand_clauses(Clauses1, Clauses2, [], false).
+
+expand_clauses([], _Clauses2, Acc, Status)->
+  case Status of
+    false -> false;
+    true -> {true, lists:reverse(Acc)}
+  end;
+expand_clauses([{Domain1, Range1} = Clause1| Clauses1],
+	       Clauses2, Acc, Status) ->
+  Fold = fun({Domain2,_}, Set) ->
+	     ordsets:union(Set, smart_overlap(Domain1, Domain2))
+	 end,
+  case lists:foldl(Fold, ordsets:new(), Clauses2) of
+    [] ->
+      expand_clauses(Clauses1, Clauses2, [Clause1| Acc], Status);
+    Set ->
+      EClause1 = [{EDomain1, Range1} ||
+		   EDomain1 <- smart_elements(Domain1, Set)],
+      expand_clauses(Clauses1, Clauses2, EClause1 ++ Acc, true)
+  end.
+
+smart_overlap(?any, _) -> [];
+smart_overlap(_, ?any) -> [];
+smart_overlap(?product(List1)=_P1, ?product(List2)=_P2)
+  when is_list(List1), is_list(List2) ->
+  smart_overlap(1, List1, List2, []);
+smart_overlap(_ ,_) ->
+  [].
+
+smart_overlap(_, [], [], Acc) ->
+  lists:reverse(Acc);
+smart_overlap(N, [Type1|Rest1], [Type2|Rest2], Acc) ->
+  case t_inf(Type1, Type2) of
+    ?none -> smart_overlap(N+1, Rest1, Rest2, Acc);
+    _     -> smart_overlap(N+1, Rest1, Rest2, [N|Acc])
+  end;
+smart_overlap(_, _, _, _) ->
+  [].
+
+smart_elements(?product(List), Set) ->
+  smart_elements(1, Set, List, [[]]).
+
+smart_elements(_, [], List, ListOfLists) ->
+  [?product(lists:reverse(L, List)) || L <- ListOfLists];
+smart_elements(N, [N|Set], [Type|List], ListOfLists) ->
+  smart_elements(N+1, Set, List,
+		 [[T|L] || L <- ListOfLists, T <- t_elements(Type)]);
+smart_elements(N, Set, [Type|List], ListOfLists) ->
+  smart_elements(N+1, Set, List, [[Type|L] || L <- ListOfLists]).
+
+check_arity([{?product(List), _}|_]) when is_list(List)->
+  length(List);
+check_arity(_) ->
+  undefined.
+
+add_clauses_1(Clauses1, Clauses2) ->
+  SuperClauses1 =
+    [{old, {Domain, Range}, Range} || {Domain, Range} <- Clauses1],
+  add_clauses_1(SuperClauses1, Clauses2, []).
+
+add_clauses_1(SuperClauses, [], Acc) ->
+  Clauses = lists:reverse(Acc),
+  merge(SuperClauses, Clauses);
+add_clauses_1(SuperClauses, [Clause|Clauses], Acc) ->
+  case add_clause(SuperClauses, Clause) of
+    {keep, NewSuperClauses, NewClause} ->
+      add_clauses_1(NewSuperClauses, Clauses, [NewClause| Acc]);
+    {skip, NewSuperClauses} ->
+      add_clauses_1(NewSuperClauses, Clauses, Acc)
+  end.
+
+add_clause(SuperClauses, {Domain, Range}) ->
+  add_clause(SuperClauses, Domain, Range, Range, []).
+
+add_clause([], Domain, _, URange, Acc) ->
+  {keep, lists:reverse(Acc), {Domain, URange}};
+add_clause([{old,
+	     {ODomain, ORange} = OClause, UORange} = SuperClause| SuperClauses],
+	   Domain, Range, URange, Acc) ->
+  case overlap(Domain, ODomain) of
+    false ->
+      add_clause(SuperClauses, Domain, Range, URange, [SuperClause| Acc]);
+    true ->
+      NOClause = {old, OClause, t_sup(Range, UORange)},
+      case t_is_subtype(Domain, ODomain) of
+	true ->
+	  {skip,
+	   lists:reverse([NOClause,
+			  {new, {Domain, Range}, t_sup(Range, ORange)}| Acc],
+			 SuperClauses)};
+	false ->
+	  add_clause(SuperClauses, Domain, Range, t_sup(URange, ORange),
+		     [NOClause| Acc])
       end
   end;
-add_clause([], Domain, Range, Acc) ->
-  combine_clauses(lists:reverse(Acc, [{Domain, Range}])).
+add_clause([SuperClause| SuperClauses], Domain, Range, URange, Acc) ->
+  add_clause(SuperClauses, Domain, Range, URange, [SuperClause| Acc]).
 
-combinable(?product(List1), ?product(List2)) ->
-  case one_or_less_diff(List1, List2) of
-    {yes, NewList} -> {yes, ?product(NewList)};
-    no -> no
-  end;
-combinable(T, T) ->
-  {yes, T};
-combinable(_, _) ->
-  no.
+merge(SuperClauses, Clauses) ->
+  merge(SuperClauses, Clauses, []).
 
-one_or_less_diff(List1, List2) ->
-  one_or_less_diff(List1, List2, []).
+merge([], Clauses, Acc) ->
+  lists:reverse(Acc, Clauses);
+merge([{Status, {Domain, _Range}, URange}| SuperClauses], Clauses, Acc)
+  when Status =:= old; Status =:= new ->
+  merge(SuperClauses, Clauses, [{Domain, URange}| Acc]);
+merge([_SuperClause| SuperClauses], Clauses, Acc) ->
+  merge(SuperClauses, Clauses, Acc).
 
-one_or_less_diff([], [], Acc) ->
-  {yes, lists:reverse(Acc)};
-one_or_less_diff([Type1| Rest1], [Type2| Rest2], Acc) ->
-  case t_is_equal(Type1, Type2) of
-    true  -> one_or_less_diff(Rest1, Rest2, [Type1| Acc]);
-    false -> zero_diff(Rest1, Rest2, [t_sup(Type1, Type2)| Acc])
-  end.
-
-zero_diff([], [], Acc) ->
-  {yes, lists:reverse(Acc)};
-zero_diff([Type1| Rest1], [Type2| Rest2], Acc) ->
-  case t_is_equal(Type1, Type2) of
-    true  -> zero_diff(Rest1, Rest2, [Type1| Acc]);
-    false -> no
-  end.
-
+combine_clauses([{?any,_}]=Clauses) ->
+  Clauses;
 combine_clauses(Clauses) ->
-  combine_clauses(Clauses, [], Clauses).
+  Clauses1 = combine_duplicate_doms(Clauses),
+  combine_same_ranges(Clauses1).
 
-combine_clauses([], Acc, OldClauses) ->
+combine_duplicate_doms(Clauses) ->
+  combine_duplicate_doms(Clauses, []).
+
+combine_duplicate_doms([], Acc) ->
+  lists:reverse(Acc);
+combine_duplicate_doms([Clause|Rest], Acc) ->
+  case has_duplicates(Clause, Rest) of
+    {true, NewRest} ->
+      combine_duplicate_doms(NewRest, Acc);
+    false ->
+      combine_duplicate_doms(Rest, [Clause| Acc])
+  end.
+
+has_duplicates({Domain, Range}, Rest) ->
+  has_duplicates(Domain, Range, Rest, [], [], false).
+
+has_duplicates(Domain, Range, [], RestBef, RestAft, Status) ->
+  case Status of
+    true ->
+      {true, lists:reverse(RestBef, [{Domain, Range}|lists:reverse(RestAft)])};
+    false ->
+      false
+  end;
+has_duplicates(Domain, Range, [{DomainB, RangeB} = Clause|Rest],
+	 RestBef, RestAft, Status) ->
+  case t_is_equal(Domain, DomainB) of
+    true ->
+      has_duplicates(Domain, t_sup(Range, RangeB), Rest,
+	       RestAft ++ RestBef, [], true);
+    false ->
+      has_duplicates(Domain, Range, Rest, RestBef, [Clause| RestAft], Status)
+  end.
+
+combine_same_ranges(Clauses) ->
+  ?idebug("CSR ~s\n",[t_to_string(?function(Clauses))]),
+  combine_same_ranges(Clauses, [], Clauses).
+
+combine_same_ranges([], Acc, OldClauses) ->
+  ?idebug("CSR ~s\n",[t_to_string(?function(lists:reverse(Acc)))]),
   NewClauses = lists:reverse(Acc),
   case NewClauses =:= OldClauses of
     true  -> NewClauses;
-    false -> combine_clauses(NewClauses, [], NewClauses)
+    false -> combine_same_ranges(NewClauses, [], NewClauses)
   end;
-combine_clauses([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
-  case combine_clause(Rest, Domain, Range, Rest) of
-    {yes, NewDomain, NewRest} ->
-      combine_clauses(NewRest, [{NewDomain, Range}| Acc], OldClauses);
-    no ->
-      combine_clauses(Rest, [Clause| Acc], OldClauses)
+combine_same_ranges([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
+  ?idebug("CSR ~s\n",[t_to_string(?function(Domain, Range))]),
+  case combine_same_range(Rest, Domain, Range, Rest) of
+    {true, NewRest} ->
+      combine_same_ranges(NewRest, Acc, OldClauses);
+    false ->
+      combine_same_ranges(Rest, [Clause| Acc], OldClauses)
   end.
 
-combine_clause(Clauses, Domain, Range, Clauses) ->
-  combine_clause(Clauses, Domain, Range, no, []).
+combine_same_range(Clauses, Domain, Range, Clauses) ->
+  combine_same_range(Clauses, Domain, Range, false, [], []).
 
-combine_clause([], _Domain, _Range, no, _NewRest) ->
-  no;
-combine_clause([], Domain, _Range, yes, NewRest) ->
-  {yes, Domain, lists:reverse(NewRest)};
-combine_clause([{DomainA, RangeA}= Clause| Rest], Domain, Range, Result, Acc) ->
+combine_same_range([], _Domain, _Range, false, _NewRestBef, _NewRestAfter) ->
+  ?idebug("TERMINATE\n", []),
+  false;
+combine_same_range([], Domain, Range, true, NewRestBef, NewRestAfter) ->
+  ?idebug("TERMINATE\n", []),
+  {true, lists:reverse(NewRestBef,
+		      [{Domain, Range}| lists:reverse(NewRestAfter)])};
+combine_same_range([{DomainA, RangeA} = Clause| Rest],
+		   Domain, Range, Result, RestBef, RestAfter) ->
+  ?idebug("csr: ~s ~s\n", [t_to_string(DomainA), t_to_string(Domain)]),
   case t_is_equal(RangeA, Range) of
     true ->
+      ?idebug("Possible combination\n",[]),
       case combinable(DomainA, Domain) of
-	{yes, NewDomain} ->
-	  combine_clause(Rest, NewDomain, Range, yes, Acc);
-	no ->
-	  combine_clause(Rest, Domain, Range, Result, [Clause| Acc])
+	{true, NewDomain} ->
+	  ?idebug("Combination: ~s\n",[t_to_string(NewDomain)]),
+	  combine_same_range(Rest, NewDomain, Range, true,
+			     RestAfter ++ RestBef, []);
+	false ->
+	  case overlap(Domain, DomainA) of
+	    true ->
+	      ?idebug("Overlap\n", []),
+	      case Result of
+		false -> false;
+		true ->
+		  {true,
+		   lists:reverse(RestBef, [{Domain, Range}|
+					   lists:reverse(RestAfter,
+							 [Clause| Rest])])}
+	      end;
+	    false ->
+	      combine_same_range(Rest, Domain, Range, Result, RestBef,
+				 [Clause| RestAfter])
+	  end
       end;
     false ->
-      combine_clause(Rest, Domain, Range, Result, [Clause| Acc])
+      case (t_is_subtype(Domain, DomainA) andalso
+	    t_is_subtype(Range, RangeA)) of
+	true ->
+	  ?idebug("Subtype\n",[]),
+	  {true,
+	   lists:reverse(RestBef, lists:reverse(RestAfter,
+						[Clause| Rest]))};
+	false ->
+	  case overlap(Domain, DomainA) of
+	    true ->
+	      ?idebug("TERMINATE\n", []),
+	      case Result of
+		false -> false;
+		true ->
+		  {true,
+		   lists:reverse(RestBef,
+				 [{Domain, Range}|
+				  lists:reverse(RestAfter, [Clause| Rest])])}
+	      end;
+	    false ->
+	      combine_same_range(Rest, Domain, Range, Result, RestBef,
+				 [Clause| RestAfter])
+	  end
+      end
   end.
 
-remove_subdomains(List) ->
-  remove_subdomains(List, [], []).
+combinable(?product(List1)=_P1, ?product(List2)=_P2) ->
+  ?idebug("Combinable: ~s with ~s\n",[t_to_string(_P1), t_to_string(_P2)]),
+  combinable(List1, List2, [], true, true, true, true, 0).
 
-remove_subdomains(List1, List2) ->
-  remove_subdomains(List1, List2, []).
+combinable(_List1, _List2, _NewList, false, false, false, false, N)
+  when N > 1 ->
+  false;
+combinable([], [], NewList, _IsAny1, _IsAny2, _IsSub12, _IsSub21, _Difs) ->
+  {true, ?product(lists:reverse(NewList))};
+combinable([Type1| List1], [Type2| List2], NewList,
+	     IsAny1, IsAny2, IsSub12, IsSub21, Difs) ->
+  case {Type1, Type2} of
+    {?any, ?any} ->
+      combinable(List1, List2, [?any| NewList],
+		   IsAny1, IsAny2, IsSub12, IsSub21, Difs);
+    {?any, _} ->
+      combinable(List1, List2, [?any| NewList],
+		 IsAny1, false, false, IsSub21, Difs + 1);
+    {_, ?any} ->
+      combinable(List1, List2, [?any| NewList],
+		 false, IsAny2, IsSub12, false, Difs + 1);
+    {_, _} ->
+      case t_is_equal(Type1, Type2) of
+	true ->
+	  combinable(List1, List2, [Type1| NewList],
+		     false, false, IsSub12, IsSub21, Difs);
+	false ->
+	  case {IsSub12, IsSub21} of
+	    {true, true} ->
+	      case {t_is_subtype(Type1, Type2), t_is_subtype(Type2, Type1)} of
+		{true, false} ->
+		  combinable(List1, List2, [Type2| NewList],
+			     false, false, true, false, Difs + 1);
+		{false, true} ->
+		  combinable(List1, List2, [Type1| NewList],
+			     false, false, false, true, Difs + 1);
+		{false, false} ->
+		  case safe_comb(Type1, Type2) of
+		    {true, Type} ->
+		      combinable(List1, List2, [Type| NewList],
+				 false, false, false, false, Difs + 1);
+		    false -> false
+		  end
+	      end;
+	    {true, false} ->
+	      case t_is_subtype(Type1, Type2) of
+		true ->
+		  combinable(List1, List2, [Type2| NewList],
+			     false, false, true, false, Difs + 1);
+		false ->
+		  case safe_comb(Type1, Type2) of
+		    {true, Type} ->
+		      combinable(List1, List2, [Type| NewList],
+				 false, false, false, false, Difs + 1);
+		    false -> false
+		  end
+	      end;
+	    {false, true} ->
+	      case t_is_subtype(Type2, Type1) of
+		true ->
+		  combinable(List1, List2, [Type1| NewList],
+			     false, false, false, true, Difs + 1);
+		false ->
+		  case safe_comb(Type1, Type2) of
+		    {true, Type} ->
+		      combinable(List1, List2, [Type| NewList],
+				 false, false, false, false, Difs + 1);
+		    false -> false
+		  end
+	      end;
+	    {false, false} ->
+	      case safe_comb(Type1, Type2) of
+		{true, Type} ->
+		  combinable(List1, List2, [Type| NewList],
+			     false, false, false, false, Difs + 1);
+		false -> false
+	      end
+	  end
+      end
+  end.
 
-remove_subdomains([], [],  Acc) ->
-  remove_redundant(Acc);
-remove_subdomains([{?any, RangeA}| Rest], List2,  Acc) ->
-  RestRanges  = [Range || {_, Range} <- Rest],
-  List2Ranges = [Range || {_, Range} <- List2],
-  NewRangeA = t_sup([t_sup([RangeA| RestRanges])| List2Ranges]),
-  remove_redundant([{?any, NewRangeA}|Acc]);
-remove_subdomains([], List2,  Acc) ->
-  remove_subdomains(List2, [], Acc);
-remove_subdomains([{DomainA, RangeA}| Rest], List2, Acc) ->
-  Pred = fun({Domain, _}) -> t_is_subtype(Domain, DomainA) end,
-  {SubDomsRest, NonSubDomsRest} = lists:partition(Pred, Rest),
-  {SubDomsList2, NonSubDomsList2} = lists:partition(Pred, List2),
-  Map = fun({Domain, Range}) -> {t_subtract(Domain, DomainA), Range} end,
-  ValidRest = lists:map(Map, NonSubDomsRest),
-  ValidList2 = lists:map(Map, NonSubDomsList2),
-  Fold = fun({_, Range}, RangeAcc) -> t_sup(Range, RangeAcc) end,
-  NewRangeA = lists:foldl(Fold, lists:foldl(Fold, RangeA, SubDomsRest),
-			  SubDomsList2),
-  remove_subdomains(ValidRest, ValidList2, [{DomainA, NewRangeA}| Acc]).
-
-remove_redundant(List) ->
-  remove_redundant(List, []).
-
-remove_redundant([], Acc) ->
-  Acc;
-remove_redundant([{DomainA, RangeA} = Clause| Rest], Acc) ->
-  NewRest = [{DomainB, RangeB} || {DomainB, RangeB} <- Rest,
-				  (not t_is_equal(RangeB, RangeA)) orelse
-				    (not t_is_equal(DomainB, DomainA))],
-  remove_redundant(NewRest, [Clause| Acc]).
-
-none_or_has_none(?none) -> true;
-none_or_has_none(?product(List)) -> lists:member(?none, List);
-none_or_has_none(?any) -> false.
+safe_comb(Type1, Type2) ->
+  Sup = t_sup(Type1, Type2),
+  case (t_is_equal(Type1, t_subtract(Sup, Type2)) andalso
+	t_is_equal(Type2, t_subtract(Sup, Type1))) of
+    true  -> {true, Sup};
+    false -> false
+  end.
 
 collapse_clauses(List) ->
   lists:foldl(fun({Domain, Range}, {DomAcc, RangeAcc}) ->
 		  {t_sup(Domain, DomAcc), t_sup(Range, RangeAcc)}
 	      end, {?none, ?none}, List).
-
-expand_domains(List) ->
-  expand_domains(List, []).
-
-expand_domains([], Acc) ->
-  remove_subdomains(lists:append(lists:reverse(Acc)));
-expand_domains([{Domain, Range}|Rest], Acc) ->
-  Clauses = [{DomainElement, Range} || DomainElement <- t_elements(Domain)],
-  expand_domains(Rest, [Clauses| Acc]).
 
 -spec t_get_intersections(erl_type()) -> [{erl_type(),[erl_type()]}].
 
@@ -2178,8 +2436,16 @@ t_sup(?atom(Set1), ?atom(Set2)) ->
   ?atom(set_union(Set1, Set2));
 t_sup(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   t_bitstr(gcd(gcd(U1, U2), abs(B1-B2)), lists:min([B1, B2]));
-t_sup(?function(_) = Fun1, ?function(_) = Fun2) ->
-  sup_function(Fun1, Fun2);
+t_sup(?function(Clauses1), ?function(Clauses2)) ->
+  ?idebug("SUPREMUM:\n",[]),
+  case {check_arity(Clauses1), check_arity(Clauses2)} of
+    {N, N} when is_integer(N), N>0 ->
+      ?function(combine_clauses(Clauses1 ++ Clauses2));
+    {_, _} ->
+      {Domain1, Range1} = collapse_clauses(Clauses1),
+      {Domain2, Range2} = collapse_clauses(Clauses2),
+      ?function(t_sup(Domain1, Domain2), t_sup(Range1, Range2))
+  end;
 t_sup(?identifier(Set1), ?identifier(Set2)) ->
   ?identifier(set_union(Set1, Set2));
 t_sup(?opaque(Set1), ?opaque(Set2)) ->
@@ -2277,105 +2543,6 @@ t_sup_lists([T1|Left1], [T2|Left2]) ->
   [t_sup(T1, T2)|t_sup_lists(Left1, Left2)];
 t_sup_lists([], []) ->
   [].
-
-%% -define(l_db, 1).
-
--ifdef(l_db).
--define(l_debug(String, Args), io:format(String, Args)).
--else.
--define(l_debug(__String, __Args), ok).
--endif.
-
-sup_function(?function(List1), ?function(List2)) ->
-  Infima = infima_domains(List1, List2, keep),
-  ?l_debug("InfDom\t: ~p\n",[Infima]),
-  ?function(find_ranges(Infima, List1, List2, true, fun t_sup/2)).
-
-infima_domains(List1, List2, EscapedPolicy) ->
-  ExpList1 = expand_domains(List1),
-  ExpList2 = expand_domains(List2),
-  {Esc1, Inf1} = infima_domains(ExpList1, ExpList2, [], []),
-  %% ?l_debug("Inf1\t: ~p\n",[lists:map(fun t_to_string/1, Inf1)]),
-  {Esc2, Inf2} = infima_domains(ExpList2, ExpList1, [], []),
-  %% ?l_debug("Inf2\t: ~p\n",[lists:map(fun t_to_string/1, Inf2)]),
-  case EscapedPolicy of
-    keep -> Inf1 ++ Inf2 ++ Esc1 ++ Esc2;
-    drop -> Inf1 ++ Inf2;
-    warn -> if ((Esc1 =/= []) orelse (Esc2 =/= [])) -> escaped;
-	       true -> Inf1 ++ Inf2
-	    end
-  end.
-
-infima_domains([], _, Acc, Escaped) ->
-  %% ?l_debug("Acc\t: ~p\nEsc\t: ~p\n",[Acc, Escaped]),
-  {lists:reverse(Escaped), lists:append(lists:reverse(Acc))};
-infima_domains([{DomainA,_}|Rest], List2, Acc, Escaped) ->
-  %% ?l_debug("From\t: ~p\n",[DomainA]),
-  {Escapes, Infima} = infima_domain(DomainA, List2, Acc, Escaped),
-  %% ?l_debug("Infima\t: ~p\n",[Infima]),
-  NewEscaped = case Escapes of
-		 false -> Escaped;
-		 true  -> [DomainA|Escaped]
-	       end,
-  infima_domains(Rest, List2, [Infima|Acc], NewEscaped).
-
-infima_domain(Domain, List, OuterAcc, Escaped) ->
-  %% io:format("~P\n",[List,7]),
-  infima_domain(Domain, List, OuterAcc, Escaped, []).
-
-infima_domain(_Domain, [], _OuterAcc, _Escaped, Acc) ->
-  %% ?l_debug("Escape!\t: ~p\n",[_Domain]),
-  {true, lists:reverse(Acc)};
-infima_domain(DomainA, [{DomainB, _}| Rest], OuterAcc, Escaped, Acc) ->
-  %% ?l_debug("Against\t: ~p\n",[DomainB]),
-  Infimum = t_inf(DomainA, DomainB, opaque),
-  %% ?l_debug("Infimum\t: ~p\n",[Infimum]),
-  IsMember = lists:member(Infimum, OuterAcc) orelse lists:member(Infimum, Acc)
-    orelse lists:member(Infimum, Escaped),
-  IsEqual = t_is_equal(Infimum, DomainA),
-  %% ?l_debug("Mem: ~p\tEqu: ~p\n",[IsMember, IsEqual]),
-  case none_or_has_none(Infimum) of
-    true -> infima_domain(DomainA, Rest, OuterAcc, Escaped, Acc);
-    false ->
-      case {IsMember, IsEqual} of
-	{true , false} -> infima_domain(DomainA, Rest, OuterAcc, Escaped, Acc);
-	{false, false} -> infima_domain(DomainA, Rest, OuterAcc, Escaped,
-					[Infimum|Acc]);
-	{true ,  true} -> {false, lists:reverse(Acc)};
-	{false,  true} -> {false, lists:reverse([Infimum|Acc])}
-      end
-  end.
-
-find_ranges(Infima, List1, List2, KeepEmpty, Fun) ->
-  Clauses = [assign_range(Domain, List1, List2, KeepEmpty, Fun) ||
-	      Domain <- Infima],
-  case lists:member(dropped, Clauses) of
-    true ->
-      ?l_debug("Dropped\t: ~p\n",[Clauses]),
-      [];
-    false ->
-      ?l_debug("Clauses\t: ~s\n",[t_to_string(?function(Clauses))]),
-      combine_clauses(Clauses)
-  end.
-
-assign_range(Domain, List1, List2, KeepEmpty, Fun) ->
-  Pred = fun({DomainB,_}) -> not t_is_subtype(Domain, DomainB, opaque) end,
-  Clause1 = lists:dropwhile(Pred, List1),
-  Clause2 = lists:dropwhile(Pred, List2),
-  case KeepEmpty orelse (Clause1 =/= [] andalso Clause2 =/= []) of
-    true ->
-      case {Clause1, Clause2} of
-	{[{_,Range}|_], []} -> {Domain, Range};
-	{[], [{_,Range}|_]} -> {Domain, Range};
-	{[{_,Range1}|_], [{_,Range2}|_]} ->
-	  {Domain, Fun(Range1, Range2)}
-	  %% case Fun(Range1, Range2) of
-	  %%   ?none -> dropped;
-	  %%   Range -> {Domain, Range}
-	  %% end
-      end;
-    false -> dropped
-  end.
 
 sup_tuple_sets(L1, L2) ->
   TotalArities = ordsets:union([Arity || {Arity, _} <- L1],
@@ -2507,7 +2674,7 @@ t_elements(?tuple_set(_) = TS) ->
 t_elements(?union(List)) ->
   lists:append([t_elements(T) || T <- List]);
 t_elements(?product([]) = P) -> [P];
-t_elements(?product(List)) ->
+t_elements(?product(List)) when is_list(List)->
   [?product(ElemList) || ElemList <- power_product(List)];
 t_elements(?var(_)) -> [?any].  %% yes, vars exist -- what else to do here?
 %% t_elements(T) ->
@@ -2721,17 +2888,89 @@ t_inf(T1, ?opaque(_) = T2, opaque) ->
 t_inf(#c{}, #c{}, _) ->
   ?none.
 
-inf_function(?function(List1), ?function(List2), Mode) ->
-  Infima = infima_domains(List1, List2, drop),
-  ?l_debug("InfDom\t: ~p\n",[Infima]),
-  Fun = fun(Type1, Type2) -> t_inf(Type1, Type2, Mode) end,
-  Result =
-    case find_ranges(Infima, List1, List2, false, Fun) of
-      []       -> ?none;
-      Clauses  -> ?function(Clauses)
-    end,
-  ?l_debug("InfFun\t: ~s\n",[t_to_string(Result)]),
-  Result.
+inf_function(Fun1, Fun2, Mode) ->
+  ?idebug("INFIMUM:\n",[]),
+  ?idebug("F1\t: ~s\nF2\t: ~s\n",[t_to_string(Fun1), t_to_string(Fun2)]),
+  case t_is_subtype(Fun1, Fun2) of
+    true ->
+      ?idebug("F1 subtype of F2\n",[]),
+      Fun1;
+    false ->
+      case t_is_subtype(Fun2, Fun1) of
+	true ->
+	  ?idebug("F2 subtype of F1\n",[]),
+	  Fun2;
+	false ->
+	  ?idebug("Real Infimum\n",[]),
+	  Clauses = inf_clauses(Fun1, Fun2, Mode),
+	  ?idebug("PreComb\t: ~s\n",[t_to_string(?function(Clauses))]),
+	  case Clauses of
+	    [] -> ?none;
+	    _ -> ?function(combine_clauses(Clauses))
+	  end
+      end
+  end.
+
+inf_clauses(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2, Mode) ->
+  Domains1 = [t_elements(Domain) || {Domain, _} <- Clauses1],
+  Domains2 = [DomainEl || {Domain, _} <- Clauses2,
+			  DomainEl <- t_elements(Domain)],
+  ?idebug("\nDomains2: ~s\n\n",
+	  [string:join(lists:map(fun t_to_string/1,Domains2),", ")]),
+  inf_clauses(Fun1, Fun2, Domains1, Domains2, Mode, []).
+
+inf_clauses(_Fun1, _Fun2, [], _Domains2, _Mode, Acc) ->
+  lists:append(lists:reverse(Acc));
+inf_clauses(Fun1, Fun2, [Domain1|Rest], Domains2, Mode, Acc) ->
+  ?idebug("Domain1: ~s\n\n",
+	  [string:join(lists:map(fun t_to_string/1,Domain1),", ")]),
+  Clauses = inf_clause(Fun1, Fun2, Domain1, Domains2, Mode),
+  ?idebug("\nAdding\t: ~s\n",[t_to_string(?function(Clauses))]),
+  inf_clauses(Fun1, Fun2, Rest, Domains2, Mode, [Clauses|Acc]).
+
+inf_clause(Fun1, Fun2, Domain1, Domains2, Mode) ->
+  inf_clause(Fun1, Fun2, Domain1, Domains2, Mode, []).
+
+inf_clause(_Fun1, _Fun2, _Domain1, [], _Mode, Acc) ->
+  ?idebug("Domains2 exhausted\n",[]),
+  lists:append(lists:reverse(Acc));
+inf_clause(_Fun1, _Fun2, [], _Domains2, _Mode, Acc) ->
+  ?idebug("Domain1 covered\n",[]),
+  lists:append(lists:reverse(Acc));
+inf_clause(Fun1, Fun2, Domain1, [DomainB|Rest], Mode, Acc) ->
+  ?idebug("Domain2\t: ~s\n",[t_to_string(DomainB)]),
+  Fold = fun(DomainA, {Uncovered, Inf}) ->
+	     ?idebug("Against\t: ~s\n",[t_to_string(DomainA)]),
+	     case coverage(DomainA, DomainB, Mode) of
+	       false -> {[DomainA| Uncovered], Inf};
+	       {true, Coverage} ->
+		 ?idebug("Coverage: ~s\n",[t_to_string(Coverage)]),
+		 RangeA = t_fun_range(Fun1, Coverage, strict),
+		 RangeB = t_fun_range(Fun2, Coverage, strict),
+		 InfRange = t_inf(RangeA, RangeB, Mode),
+		 case Coverage of
+		   DomainA ->
+		     {Uncovered, [{Coverage, InfRange}|Inf]};
+		   _ ->
+		     {[DomainA| Uncovered], [{Coverage, InfRange}|Inf]}
+		 end
+	     end
+	 end,
+  {NewDomain1, NewAcc} = lists:foldl(Fold, {[],[]}, Domain1),
+  inf_clause(Fun1, Fun2, NewDomain1, Rest, Mode, [NewAcc|Acc]).
+
+coverage(?product(List1), ?product(List2), Mode) ->
+  list_coverage(List1, List2, Mode, []).
+
+list_coverage([], [], _Mode, Acc) ->
+  {true, ?product(lists:reverse(Acc))};
+list_coverage([Type1|Rest1], [Type2|Rest2], Mode, Acc) ->
+  case t_inf(Type1, Type2, Mode) of
+    ?none -> false;
+    Some -> list_coverage(Rest1, Rest2, Mode, [Some|Acc])
+  end;
+list_coverage(_,_,_,_) ->
+  false.
 
 -spec t_inf_lists([erl_type()], [erl_type()]) -> [erl_type()].
 
@@ -2964,7 +3203,7 @@ t_subst_aux(?list(Contents, Termination, Size), VarMap) ->
 t_subst_aux(?function(List), VarMap) ->
   NewList = [{t_subst_aux(Domain, VarMap), t_subst_aux(Range, VarMap)} ||
 	      {Domain, Range} <- List],
-  ?function(remove_subdomains(NewList));
+  ?function(combine_clauses(NewList));
 t_subst_aux(?product(Types), VarMap) ->
   ?product([t_subst_aux(T, VarMap) || T <- Types]);
 t_subst_aux(?tuple(?any, ?any, ?any) = T, _VarMap) ->
@@ -3449,72 +3688,60 @@ subtract_bin(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
 -spec t_is_equal(erl_type(), erl_type()) -> boolean().
 
 t_is_equal(T, T)  -> true;
-t_is_equal(?function(List1), ?function(List2)) ->
-  case infima_domains(List1, List2, warn) of
-    escaped -> false;
-    Infima  -> equal_ranges(Infima, List1, List2)
-  end;
+t_is_equal(?function(_)=Fun1, ?function(_)=Fun2) ->
+  ?idebug("EQUALITY CHECK:\nF1\t: ~s\nF2\t: ~s\n",
+	  lists:map(fun t_to_string/1, [Fun1, Fun2])),
+  fun_equal(Fun1, Fun2) andalso fun_equal(Fun2, Fun1);
 t_is_equal(_, _) -> false.
 
-equal_ranges([], _, _) -> true;
-equal_ranges([Domain| Rest], List1, List2) ->
-  Pred = fun({DomainB,_}) -> t_is_subtype(Domain, DomainB) end,
-  {ok, {_, Range1}} = first(Pred, List1),
-  {ok, {_, Range2}} = first(Pred, List2),
-  case t_is_equal(Range1, Range2) of
-    false -> false;
-    true -> equal_ranges(Rest, List1, List2)
-  end.
-
-first(_Pred, []) -> none;
-first(Pred, [Elem| Rest]) ->
-  case Pred(Elem) of
-    true  -> {ok, Elem};
-    false -> first(Pred, Rest)
-  end.
+fun_equal(?function(List1) = Fun1, Fun2) ->
+  List2 = [{DomainEl, Range} || {Domain, Range} <- List1,
+				DomainEl <- t_elements(Domain)],
+  Fun = fun({Domain, _}) ->
+	    ?idebug("EQUALITY CHECK:\nF1\t: ~s\nF2\t: ~s\n",
+		    lists:map(fun t_to_string/1, [Fun1, Fun2])),
+	    R1 = t_fun_range(Fun1, Domain),
+	    R2 = t_fun_range(Fun2, Domain),
+	    ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
+		    lists:map(fun t_to_string/1, [Domain, R1, R2])),
+	    t_is_equal(R1, R2)
+	end,
+  lists:all(Fun, List2).
 
 -spec t_is_subtype(erl_type(), erl_type()) -> boolean().
 
-t_is_subtype(?function(List1), ?function(List2)) ->
-
-  %% This is precise but slow.
-  %% ExpList2 = expand_domains(List2),
-  %% subtyped_ranges(ExpList2, List1);
-
-  {Domain1, Range1} = collapse_clauses(List1),
-  {Domain2, Range2} = collapse_clauses(List2),
-  Inf = fast_fun_inf(Domain1, Range1, Domain2, Range2),
-  ?function(Domain1, Range1) =:= Inf;
-
+t_is_subtype(?function(?any, Range1), ?function(?any, Range2)) ->
+  t_is_subtype(Range1, Range2);
+t_is_subtype(?function(?any, _), _) ->
+  false;
+t_is_subtype(?function(Clauses1), ?function(?any, Range2)) ->
+  {_, Range1} = collapse_clauses(Clauses1),
+  t_is_subtype(Range1, Range2);
+t_is_subtype(?function(List1) = Fun1, ?function(List2) = Fun2) ->
+  ?idebug("SUBTYPE CHECK:\nF1\t: ~s\nF2\t: ~s\n",
+	  lists:map(fun t_to_string/1, [Fun1, Fun2])),
+  Dom1 = ordsets:from_list([Dom || {Dom,_} <- List1]),
+  Dom2 = ordsets:from_list([Dom || {Dom,_} <- List2]),
+  Doms = ordsets:union(Dom1, Dom2),
+  Pred = fun(Domain) ->
+	     Simple = t_elements(Domain),
+	     Pred2 =
+	       fun(Dom) ->
+		   R1 = t_fun_range(Fun1, Dom),
+		   R2 = t_fun_range(Fun2, Dom),
+		   ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
+			   lists:map(fun t_to_string/1, [Dom, R1, R2])),
+		   t_is_none(R1) orelse t_is_subtype(R1, R2)
+	       end,
+	     lists:all(Pred2, Simple)
+	 end,
+  lists:all(Pred, Doms);
 t_is_subtype(T1, T2) ->
   t_is_subtype(T1, T2, structured).
 
 t_is_subtype(T1, T2, Mode) ->
   Inf = t_inf(T1, T2, Mode),
   t_is_equal(T1, Inf).
-
-%% subtyped_ranges([], _) -> true;
-%% subtyped_ranges([{DomainB, RangeB}| Rest], List1) ->
-%%   Pred = fun({DomainA,_}) -> t_is_subtype(DomainB, DomainA) end,
-%%   case first(Pred, List1) of
-%%     {ok, {_DomainA, RangeA}} ->
-%%       case t_is_subtype(RangeA, RangeB) of
-%% 	true  ->
-%% 	  %% io:format("Success\t: ~p\n", [DomainB]),
-%% 	  subtyped_ranges(Rest, List1);
-%% 	false ->
-%% 	  %% io:format("Fail\t: ~p\n\t  ->\t~p\nagainst\t: ~p\n\t  ->\t~p\n",
-%% 	  %% 	    [DomainB, RangeB, _DomainA, RangeA]),
-%% 	  false
-%%       end;
-%%     none -> subtyped_ranges(Rest, List1)
-%%   end.
-
-fast_fun_inf(Domain1, Range1, Domain2, Range2) ->
-  case t_inf(Domain1, Domain2) of
-    ?none -> ?none;
-    Domain -> ?function(Domain, t_inf(Range1, Range2))
-  end.
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
 
