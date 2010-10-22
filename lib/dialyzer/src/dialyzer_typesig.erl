@@ -2050,12 +2050,9 @@ check_cs(Cs) ->
     _ -> false
   end.
 
-construct_intersection_type([Map0|Maps], FunVar) ->
-  Fun0 = lookup_type(FunVar, Map0),
-  lists:foldl(fun(Map, AccIn) ->
-		  Fun = lookup_type(FunVar, Map),
-		  erl_types:t_intersection(AccIn, Fun)
-	      end, Fun0, Maps).
+construct_intersection_type(Maps, FunVar) ->
+  Types = [lookup_type(FunVar, Map) || Map <- Maps],
+  erl_types:t_intersection(Types).
 
 %% ============================================================================
 %%
