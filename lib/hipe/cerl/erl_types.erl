@@ -187,6 +187,7 @@
 	 t_subtract_list/2,
 	 t_sup/1,
 	 t_sup/2,
+	 t_intersection/1,
 	 t_intersection/2,
 	 %% t_fun_combine/1,
 	 t_get_intersections/1,
@@ -2023,162 +2024,16 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 %% t_fun_combine(?function(Clauses)) ->
 %%   ?function(combine_clauses(Clauses)).
 
+-spec t_intersection([erl_type()]) -> erl_type().
+
+t_intersection(Functions) ->
+  Clauses = [{Domain, Range} || ?function(Domain, Range) <- Functions],
+  ?function(combine_clauses(Clauses)).
+
 -spec t_intersection(erl_type(), erl_type()) -> erl_type().
 
-t_intersection(?function(Clauses1)=Fun1, ?function(Clauses2)=Fun2) ->
-  ?idebug("INTERSECTION\n",[]),
-  ?idebug("F1\t: ~s\nF2\t: ~s\n",[t_to_string(Fun1), t_to_string(Fun2)]),
-  case t_is_subtype(Fun1, Fun2) of
-    true ->
-      ?idebug("F1 subtype of F2\n",[]),
-      Fun2;
-    false ->
-      case t_is_subtype(Fun2, Fun1) of
-	true ->
-	  ?idebug("F2 subtype of F1\n",[]),
-	  Fun1;
-	false ->
-	  ?idebug("Real Intersection\n",[]),
-	  Clauses = add_clauses(Clauses1, Clauses2),
-	  ?idebug("Precomb\t: ~s\n",[t_to_string(?function(Clauses))]),
-	  %% ?function(combine_duplicate_doms(Clauses))
-	  ?function(combine_clauses(Clauses))
-      end
-  end;
-t_intersection(_, _) ->
-  ?none.
-
-add_clauses(Clauses1, Clauses2) ->
-  case expand_clauses(Clauses1, Clauses2) of
-    false ->
-      case {check_arity(Clauses1), check_arity(Clauses2)} of
-	{N, N} when is_integer(N), N>0 ->
-	  ?idebug("add_clauses: No Overlap\n",[]),
-	  Clauses1 ++ Clauses2;
-	{_, _} ->
-	  {Domain1, Range1} = collapse_clauses(Clauses1),
-	  {Domain2, Range2} = collapse_clauses(Clauses2),
-	  [{t_sup(Domain1, Domain2), t_sup(Range1, Range2)}]
-      end;
-    {true, ExpClauses1} ->
-      ?idebug("add_clauses: Overlap. Expanding...\n",[]),
-      {true, ExpClauses2} = expand_clauses(Clauses2, Clauses1),
-      ?idebug("F1\t: ~s\nF2\t: ~s\n",
-	      [t_to_string(?function(ExpClauses1)),
-	       t_to_string(?function(ExpClauses2))]),
-      ?idebug("add_clauses: Adding clauses...\n",[]),
-      add_clauses_1(ExpClauses1, ExpClauses2)
-  end.
-
-expand_clauses(Clauses1, Clauses2) ->
-  expand_clauses(Clauses1, Clauses2, [], false).
-
-expand_clauses([], _Clauses2, Acc, Status)->
-  case Status of
-    false -> false;
-    true -> {true, lists:reverse(Acc)}
-  end;
-expand_clauses([{Domain1, Range1} = Clause1| Clauses1],
-	       Clauses2, Acc, Status) ->
-  Fold = fun({Domain2,_}, Set) ->
-	     ordsets:union(Set, smart_overlap(Domain1, Domain2))
-	 end,
-  case lists:foldl(Fold, ordsets:new(), Clauses2) of
-    [] ->
-      expand_clauses(Clauses1, Clauses2, [Clause1| Acc], Status);
-    Set ->
-      EClause1 = [{EDomain1, Range1} ||
-		   EDomain1 <- smart_elements(Domain1, Set)],
-      expand_clauses(Clauses1, Clauses2, EClause1 ++ Acc, true)
-  end.
-
-smart_overlap(?any, _) -> [];
-smart_overlap(_, ?any) -> [];
-smart_overlap(?product(List1)=_P1, ?product(List2)=_P2)
-  when is_list(List1), is_list(List2) ->
-  smart_overlap(1, List1, List2, []);
-smart_overlap(_ ,_) ->
-  [].
-
-smart_overlap(_, [], [], Acc) ->
-  lists:reverse(Acc);
-smart_overlap(N, [Type1|Rest1], [Type2|Rest2], Acc) ->
-  case t_inf(Type1, Type2) of
-    ?none -> smart_overlap(N+1, Rest1, Rest2, Acc);
-    _     -> smart_overlap(N+1, Rest1, Rest2, [N|Acc])
-  end;
-smart_overlap(_, _, _, _) ->
-  [].
-
-smart_elements(?product(List), Set) ->
-  smart_elements(1, Set, List, [[]]).
-
-smart_elements(_, [], List, ListOfLists) ->
-  [?product(lists:reverse(L, List)) || L <- ListOfLists];
-smart_elements(N, [N|Set], [Type|List], ListOfLists) ->
-  smart_elements(N+1, Set, List,
-		 [[T|L] || L <- ListOfLists, T <- t_elements(Type)]);
-smart_elements(N, Set, [Type|List], ListOfLists) ->
-  smart_elements(N+1, Set, List, [[Type|L] || L <- ListOfLists]).
-
-check_arity([{?product(List), _}|_]) when is_list(List)->
-  length(List);
-check_arity(_) ->
-  undefined.
-
-add_clauses_1(Clauses1, Clauses2) ->
-  SuperClauses1 =
-    [{old, {Domain, Range}, Range} || {Domain, Range} <- Clauses1],
-  add_clauses_1(SuperClauses1, Clauses2, []).
-
-add_clauses_1(SuperClauses, [], Acc) ->
-  Clauses = lists:reverse(Acc),
-  merge(SuperClauses, Clauses);
-add_clauses_1(SuperClauses, [Clause|Clauses], Acc) ->
-  case add_clause(SuperClauses, Clause) of
-    {keep, NewSuperClauses, NewClause} ->
-      add_clauses_1(NewSuperClauses, Clauses, [NewClause| Acc]);
-    {skip, NewSuperClauses} ->
-      add_clauses_1(NewSuperClauses, Clauses, Acc)
-  end.
-
-add_clause(SuperClauses, {Domain, Range}) ->
-  add_clause(SuperClauses, Domain, Range, Range, []).
-
-add_clause([], Domain, _, URange, Acc) ->
-  {keep, lists:reverse(Acc), {Domain, URange}};
-add_clause([{old,
-	     {ODomain, ORange} = OClause, UORange} = SuperClause| SuperClauses],
-	   Domain, Range, URange, Acc) ->
-  case overlap(Domain, ODomain) of
-    false ->
-      add_clause(SuperClauses, Domain, Range, URange, [SuperClause| Acc]);
-    true ->
-      NOClause = {old, OClause, t_sup(Range, UORange)},
-      case t_is_subtype(Domain, ODomain) of
-	true ->
-	  {skip,
-	   lists:reverse([NOClause,
-			  {new, {Domain, Range}, t_sup(Range, ORange)}| Acc],
-			 SuperClauses)};
-	false ->
-	  add_clause(SuperClauses, Domain, Range, t_sup(URange, ORange),
-		     [NOClause| Acc])
-      end
-  end;
-add_clause([SuperClause| SuperClauses], Domain, Range, URange, Acc) ->
-  add_clause(SuperClauses, Domain, Range, URange, [SuperClause| Acc]).
-
-merge(SuperClauses, Clauses) ->
-  merge(SuperClauses, Clauses, []).
-
-merge([], Clauses, Acc) ->
-  lists:reverse(Acc, Clauses);
-merge([{Status, {Domain, _Range}, URange}| SuperClauses], Clauses, Acc)
-  when Status =:= old; Status =:= new ->
-  merge(SuperClauses, Clauses, [{Domain, URange}| Acc]);
-merge([_SuperClause| SuperClauses], Clauses, Acc) ->
-  merge(SuperClauses, Clauses, Acc).
+t_intersection(?function(Clauses1), ?function(Domain, Range)) ->
+  ?function(combine_clauses([{Domain, Range}|Clauses1])).
 
 combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
@@ -2193,38 +2048,40 @@ combine_duplicate_doms([], Acc) ->
   lists:reverse(Acc);
 combine_duplicate_doms([Clause|Rest], Acc) ->
   case has_duplicates(Clause, Rest) of
-    {true, NewRest} ->
-      combine_duplicate_doms(NewRest, Acc);
+    {true, NewClause, NewRest} ->
+      combine_duplicate_doms(NewRest, [NewClause|Acc]);
     false ->
       combine_duplicate_doms(Rest, [Clause| Acc])
   end.
 
 has_duplicates({Domain, Range}, Rest) ->
-  has_duplicates(Domain, Range, Rest, [], [], false).
+  has_duplicates(Domain, Range, Rest, [], false).
 
-has_duplicates(Domain, Range, [], RestBef, RestAft, Status) ->
+has_duplicates(Domain, Range, [], NewRest, Status) ->
   case Status of
     true ->
-      {true, lists:reverse(RestBef, [{Domain, Range}|lists:reverse(RestAft)])};
+      {true, {Domain, Range}, lists:reverse(NewRest)};
     false ->
       false
   end;
 has_duplicates(Domain, Range, [{DomainB, RangeB} = Clause|Rest],
-	 RestBef, RestAft, Status) ->
+	       NewRest, Status) ->
   case t_is_equal(Domain, DomainB) of
     true ->
-      has_duplicates(Domain, t_sup(Range, RangeB), Rest,
-	       RestAft ++ RestBef, [], true);
+      has_duplicates(Domain, t_sup(Range, RangeB), Rest, NewRest, true);
     false ->
-      has_duplicates(Domain, Range, Rest, RestBef, [Clause| RestAft], Status)
+      has_duplicates(Domain, Range, Rest, [Clause| NewRest], Status)
   end.
 
+check_arity([{?product(List), _}|_]) when is_list(List)->
+  length(List);
+check_arity(_) ->
+  undefined.
+
 combine_same_ranges(Clauses) ->
-  ?idebug("CSR ~s\n",[t_to_string(?function(Clauses))]),
   combine_same_ranges(Clauses, [], Clauses).
 
 combine_same_ranges([], Acc, OldClauses) ->
-  ?idebug("CSR ~s\n",[t_to_string(?function(lists:reverse(Acc)))]),
   NewClauses = lists:reverse(Acc),
   case NewClauses =:= OldClauses of
     true  -> NewClauses;
@@ -2232,76 +2089,54 @@ combine_same_ranges([], Acc, OldClauses) ->
   end;
 combine_same_ranges([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
   ?idebug("CSR ~s\n",[t_to_string(?function(Domain, Range))]),
-  case combine_same_range(Rest, Domain, Range, Rest) of
+  case combine_same_range(Rest, Domain, Range) of
     {true, NewRest} ->
       combine_same_ranges(NewRest, Acc, OldClauses);
     false ->
       combine_same_ranges(Rest, [Clause| Acc], OldClauses)
   end.
 
-combine_same_range(Clauses, Domain, Range, Clauses) ->
-  combine_same_range(Clauses, Domain, Range, false, [], []).
+combine_same_range(Clauses, Domain, Range) ->
+  combine_same_range(Clauses, Domain, Range, false, []).
 
-combine_same_range([], _Domain, _Range, false, _NewRestBef, _NewRestAfter) ->
+combine_same_range([], _Domain, _Range, false, _NewRest) ->
   ?idebug("TERMINATE\n", []),
   false;
-combine_same_range([], Domain, Range, true, NewRestBef, NewRestAfter) ->
+combine_same_range([], Domain, Range, true, NewRest) ->
   ?idebug("TERMINATE\n", []),
-  {true, lists:reverse(NewRestBef,
-		      [{Domain, Range}| lists:reverse(NewRestAfter)])};
-combine_same_range([{DomainA, RangeA} = Clause| Rest],
-		   Domain, Range, Result, RestBef, RestAfter) ->
+  {true, [{Domain, Range}| lists:reverse(NewRest)]};
+combine_same_range([{DomainA, RangeA} = Clause| Rest], Domain, Range,
+		   Result, NewRest) ->
   ?idebug("csr: ~s ~s\n", [t_to_string(DomainA), t_to_string(Domain)]),
-  case t_is_equal(RangeA, Range) of
-    true ->
-      ?idebug("Possible combination\n",[]),
-      case combinable(DomainA, Domain) of
-	{true, NewDomain} ->
-	  ?idebug("Combination: ~s\n",[t_to_string(NewDomain)]),
-	  combine_same_range(Rest, NewDomain, Range, true,
-			     RestAfter ++ RestBef, []);
-	false ->
-	  case overlap(Domain, DomainA) of
-	    true ->
-	      ?idebug("Overlap\n", []),
-	      case Result of
-		false -> false;
-		true ->
-		  {true,
-		   lists:reverse(RestBef, [{Domain, Range}|
-					   lists:reverse(RestAfter,
-							 [Clause| Rest])])}
-	      end;
-	    false ->
-	      combine_same_range(Rest, Domain, Range, Result, RestBef,
-				 [Clause| RestAfter])
-	  end
-      end;
+  Combinable =
+    case t_is_equal(RangeA, Range) of
+      true ->
+	combinable(DomainA, Domain);
+      false ->
+	case t_is_subtype(Range, RangeA) of
+	  true ->
+	    case t_is_subtype(Domain, DomainA) of
+	      true -> terminate;
+	      false -> false
+	    end;
+	  false ->
+	    case t_is_subtype(RangeA, Range) of
+	      true ->
+		case t_is_subtype(DomainA, Domain) of
+		  true -> {true, Domain};
+		  false -> false
+		end;
+	      false -> false
+	    end
+	end
+    end,
+  case Combinable of
+    {true, NewDomain} ->
+      combine_same_range(Rest, NewDomain, Range, true, NewRest);
+    terminate ->
+      {true, lists:reverse(NewRest, [Clause| Rest])};
     false ->
-      case (t_is_subtype(Domain, DomainA) andalso
-	    t_is_subtype(Range, RangeA)) of
-	true ->
-	  ?idebug("Subtype\n",[]),
-	  {true,
-	   lists:reverse(RestBef, lists:reverse(RestAfter,
-						[Clause| Rest]))};
-	false ->
-	  case overlap(Domain, DomainA) of
-	    true ->
-	      ?idebug("TERMINATE\n", []),
-	      case Result of
-		false -> false;
-		true ->
-		  {true,
-		   lists:reverse(RestBef,
-				 [{Domain, Range}|
-				  lists:reverse(RestAfter, [Clause| Rest])])}
-	      end;
-	    false ->
-	      combine_same_range(Rest, Domain, Range, Result, RestBef,
-				 [Clause| RestAfter])
-	  end
-      end
+      combine_same_range(Rest, Domain, Range, Result, [Clause| NewRest])
   end.
 
 combinable(?product(List1)=_P1, ?product(List2)=_P2) ->
@@ -3712,36 +3547,69 @@ fun_equal(?function(List1) = Fun1, Fun2) ->
 
 t_is_subtype(?function(?any, Range1), ?function(?any, Range2)) ->
   t_is_subtype(Range1, Range2);
-t_is_subtype(?function(?any, _), _) ->
+t_is_subtype(?function(?any, _), ?function(_)) ->
   false;
 t_is_subtype(?function(Clauses1), ?function(?any, Range2)) ->
   {_, Range1} = collapse_clauses(Clauses1),
   t_is_subtype(Range1, Range2);
-t_is_subtype(?function(List1) = Fun1, ?function(List2) = Fun2) ->
+t_is_subtype(?function(List1) = Fun1, ?function(_) = Fun2) ->
   ?idebug("SUBTYPE CHECK:\nF1\t: ~s\nF2\t: ~s\n",
 	  lists:map(fun t_to_string/1, [Fun1, Fun2])),
-  Dom1 = ordsets:from_list([Dom || {Dom,_} <- List1]),
-  Dom2 = ordsets:from_list([Dom || {Dom,_} <- List2]),
-  Doms = ordsets:union(Dom1, Dom2),
+  Dom1 = [Dom || {Dom,_} <- List1],
   Pred = fun(Domain) ->
 	     Simple = t_elements(Domain),
 	     Pred2 =
 	       fun(Dom) ->
 		   R1 = t_fun_range(Fun1, Dom),
 		   R2 = t_fun_range(Fun2, Dom),
+		   NDom = negate_domain(Dom),
+		   R3 = t_fun_range(Fun1, NDom),
+		   R4 = t_fun_range(Fun2, NDom),
 		   ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
 			   lists:map(fun t_to_string/1, [Dom, R1, R2])),
-		   t_is_none(R1) orelse t_is_subtype(R1, R2)
+		   ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
+			   lists:map(fun t_to_string/1, [NDom, R3, R4])),
+		   (t_is_none(R1) orelse t_is_subtype(R1, R2))
+		     andalso (t_is_none(R3) orelse t_is_subtype(R3, R4))
 	       end,
 	     lists:all(Pred2, Simple)
 	 end,
-  lists:all(Pred, Doms);
+  lists:all(Pred, Dom1);
 t_is_subtype(T1, T2) ->
   t_is_subtype(T1, T2, structured).
 
 t_is_subtype(T1, T2, Mode) ->
   Inf = t_inf(T1, T2, Mode),
   t_is_equal(T1, Inf).
+
+negate_domain(?product(List)) ->
+  ?product(negate_list(List)).
+
+negate_list(List) ->
+  negate_list(List, []).
+
+negate_list([], Acc) ->
+  lists:reverse(Acc);
+negate_list([?any| Rest], Acc) ->
+  Type1 = t_from_term(fun() -> 42 end),
+  Map = fun(?any) -> Type1;
+	   (T)    -> T
+	end,
+  lists:reverse(Acc, [Type1| lists:map(Map, Rest)]);
+negate_list([Type| Rest], Acc) ->
+  Type1 = t_from_term(fun() -> 42 end),
+  case t_is_subtype(Type1, Type) of
+    false ->
+      lists:reverse(Acc, [Type1| Rest]);
+    true ->
+      Type2 = t_from_term(random_atom_4243274),
+      case t_is_subtype(Type2, Type) of
+	false ->
+	  lists:reverse(Acc, [Type1| Rest]);
+	true ->
+	  negate_list(Rest, [Type|Acc])
+      end
+  end.
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
 
