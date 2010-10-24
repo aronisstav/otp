@@ -2746,66 +2746,60 @@ inf_function(Fun1, Fun2, Mode) ->
       end
   end.
 
-inf_clauses(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2, Mode) ->
-  Domains1 = [t_elements(Domain) || {Domain, _} <- Clauses1],
-  Domains2 = [DomainEl || {Domain, _} <- Clauses2,
-			  DomainEl <- t_elements(Domain)],
-  ?idebug("\nDomains2: ~s\n\n",
-	  [string:join(lists:map(fun t_to_string/1,Domains2),", ")]),
-  inf_clauses(Fun1, Fun2, Domains1, Domains2, Mode, []).
+inf_clauses(?function(Clauses1), Fun2, Mode) ->
+  inf_clauses(Clauses1, Fun2, Mode, []).
 
-inf_clauses(_Fun1, _Fun2, [], _Domains2, _Mode, Acc) ->
-  lists:append(lists:reverse(Acc));
-inf_clauses(Fun1, Fun2, [Domain1|Rest], Domains2, Mode, Acc) ->
-  ?idebug("Domain1: ~s\n\n",
-	  [string:join(lists:map(fun t_to_string/1,Domain1),", ")]),
-  Clauses = inf_clause(Fun1, Fun2, Domain1, Domains2, Mode),
-  ?idebug("\nAdding\t: ~s\n",[t_to_string(?function(Clauses))]),
-  inf_clauses(Fun1, Fun2, Rest, Domains2, Mode, [Clauses|Acc]).
+inf_clauses([], _Fun2, _Mode, Acc) ->
+  lists:reverse(Acc);
+inf_clauses([{Domain1, Range1}| Clauses1], Fun2, Mode, Acc) ->
+  Range2 = t_fun_range(Fun2, Domain1),
+  case t_inf(Range1, Range2, Mode) of
+    ?none ->
+      inf_clauses(Clauses1, Fun2, Mode, Acc);
+    _ ->
+      case inf_clauses_1(Domain1, Range1, Fun2, Mode) of
+	[] ->
+	  inf_clauses(Clauses1, Fun2, Mode, Acc);
+	NewAcc ->
+	  inf_clauses(Clauses1, Fun2, Mode, NewAcc ++ Acc)
+      end
+  end.
 
-inf_clause(Fun1, Fun2, Domain1, Domains2, Mode) ->
-  inf_clause(Fun1, Fun2, Domain1, Domains2, Mode, []).
+inf_clauses_1(Domain1, Range1, ?function(Clauses2), Mode) ->
+  ?idebug("Possible clause: ~s\n",
+	  [t_to_string(?function([{Domain1, Range1}]))]),
+  inf_clauses_1(t_elements(Domain1), Range1, Clauses2, Mode, []).
 
-inf_clause(_Fun1, _Fun2, _Domain1, [], _Mode, Acc) ->
-  ?idebug("Domains2 exhausted\n",[]),
-  lists:append(lists:reverse(Acc));
-inf_clause(_Fun1, _Fun2, [], _Domains2, _Mode, Acc) ->
-  ?idebug("Domain1 covered\n",[]),
-  lists:append(lists:reverse(Acc));
-inf_clause(Fun1, Fun2, Domain1, [DomainB|Rest], Mode, Acc) ->
-  ?idebug("Domain2\t: ~s\n",[t_to_string(DomainB)]),
-  Fold = fun(DomainA, {Uncovered, Inf}) ->
-	     ?idebug("Against\t: ~s\n",[t_to_string(DomainA)]),
-	     case coverage(DomainA, DomainB, Mode) of
-	       false -> {[DomainA| Uncovered], Inf};
-	       {true, Coverage} ->
-		 ?idebug("Coverage: ~s\n",[t_to_string(Coverage)]),
-		 RangeA = t_fun_range(Fun1, Coverage, strict),
-		 RangeB = t_fun_range(Fun2, Coverage, strict),
-		 InfRange = t_inf(RangeA, RangeB, Mode),
-		 case Coverage of
-		   DomainA ->
-		     {Uncovered, [{Coverage, InfRange}|Inf]};
-		   _ ->
-		     {[DomainA| Uncovered], [{Coverage, InfRange}|Inf]}
-		 end
-	     end
-	 end,
-  {NewDomain1, NewAcc} = lists:foldl(Fold, {[],[]}, Domain1),
-  inf_clause(Fun1, Fun2, NewDomain1, Rest, Mode, [NewAcc|Acc]).
+inf_clauses_1([], _Range1, _Clauses2, _Mode, Acc) ->
+  Acc;
+inf_clauses_1([Domain1| Domains1], Range1, Clauses2, Mode, Acc) ->
+  case inf_clauses_2(Domain1, Range1, Clauses2, Mode) of
+    [] ->
+      inf_clauses_1(Domains1, Range1, Clauses2, Mode, Acc);
+    NewClauses ->
+      ?idebug("Adding clause: ~s\n", [t_to_string(?function(NewClauses))]),
+      inf_clauses_1(Domains1, Range1, Clauses2, Mode, NewClauses ++ Acc)
+  end.
 
-coverage(?product(List1), ?product(List2), Mode) ->
-  list_coverage(List1, List2, Mode, []).
+inf_clauses_2(Domain1, Range1, Clauses2, Mode) ->
+  inf_clauses_2(Domain1, Range1, Clauses2, Mode, []).
 
-list_coverage([], [], _Mode, Acc) ->
-  {true, ?product(lists:reverse(Acc))};
-list_coverage([Type1|Rest1], [Type2|Rest2], Mode, Acc) ->
-  case t_inf(Type1, Type2, Mode) of
-    ?none -> false;
-    Some -> list_coverage(Rest1, Rest2, Mode, [Some|Acc])
-  end;
-list_coverage(_,_,_,_) ->
-  false.
+inf_clauses_2(_Domain1, _Range1, [], _Mode, Acc) ->
+  Acc;
+inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
+  ?idebug("Checking: ~s\n", [t_to_string(?function([{Domain2, Range2}]))]),
+  case t_inf(Domain1, Domain2, Mode) of
+    ?none ->
+      inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
+    Domain ->
+      case t_inf(Range1, Range2, Mode) of
+	?none ->
+	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
+	Range ->
+	  ?idebug("Adding: ~s\n", [t_to_string(?function([{Domain, Range}]))]),
+	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
+      end
+  end.
 
 -spec t_inf_lists([erl_type()], [erl_type()]) -> [erl_type()].
 
