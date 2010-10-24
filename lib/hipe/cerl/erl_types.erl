@@ -1094,43 +1094,30 @@ t_fun_range(?function(List)) ->
 
 -spec t_fun_range(erl_type(), erl_type()) -> erl_type().
 
-t_fun_range(Fun, ArgTypes) ->
-  t_fun_range(Fun, ArgTypes, loose).
-
-t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes, Mode) ->
-  find_range(Fun, ArgTypes, Mode);
-t_fun_range(?function(_)=Fun, ?any, _Mode) ->
+t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes) ->
+  find_range(Fun, ArgTypes);
+t_fun_range(?function(_)=Fun, ?any) ->
   t_fun_range(Fun);
-t_fun_range(?function(_) = Fun, ArgTypes, Mode) ->
-  t_fun_range(Fun, ?product(ArgTypes), Mode).
+t_fun_range(?function(_) = Fun, ArgTypes) ->
+  t_fun_range(Fun, ?product(ArgTypes)).
 
-find_range(?function(List), ArgTypes, Mode) ->
-  find_range(t_elements(ArgTypes), List, Mode, ?none).
+find_range(?function(List), ArgTypes) ->
+  find_range(t_elements(ArgTypes), List, ?none).
 
-find_range([], _Clauses, _Mode, AccRange) ->
+find_range([], _Clauses, AccRange) ->
   AccRange;
-find_range([Domain|Rest], Clauses, Mode, AccRange) ->
-  NewRange = find_range_1(Domain, Clauses, Mode, ?none),
-  find_range(Rest, Clauses, Mode, t_sup(AccRange, NewRange)).
+find_range([Domain|Rest], Clauses, AccRange) ->
+  NewRange = find_range_1(Domain, Clauses, ?none),
+  find_range(Rest, Clauses, t_sup(AccRange, NewRange)).
 
-find_range_1(_Domain, [], _Mode, AccRange) ->
+find_range_1(_Domain, [], AccRange) ->
   AccRange;
-find_range_1(Domain, [{DomainA, Range}|Rest], Mode, AccRange) ->
+find_range_1(Domain, [{DomainA, Range}|Rest], AccRange) ->
   case overlap(Domain, DomainA) of
     false ->
-      find_range_1(Domain, Rest, Mode, AccRange);
+      find_range_1(Domain, Rest, AccRange);
     true ->
-      case t_is_subtype(Domain, DomainA) of
-	false ->
-	  find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange));
-	true ->
-	  case Mode of
-	    loose ->
-	      find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange));
-	    strict ->
-	      Range
-	  end
-      end
+      find_range_1(Domain, Rest, t_sup(Range, AccRange))
   end.
 
 overlap(?any, _) ->
