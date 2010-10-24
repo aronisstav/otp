@@ -1094,49 +1094,56 @@ t_fun_range(?function(List)) ->
 
 -spec t_fun_range(erl_type(), erl_type()) -> erl_type().
 
-t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes) ->
-  find_range(Fun, ArgTypes);
-t_fun_range(?function(_)=Fun, ?any) ->
+t_fun_range(Fun, ArgTypes) ->
+  t_fun_range(Fun, ArgTypes, opaque).
+
+t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes, Mode) ->
+  find_range(Fun, ArgTypes, Mode);
+t_fun_range(?function(_)=Fun, ?any, _Mode) ->
   t_fun_range(Fun);
-t_fun_range(?function(_) = Fun, ArgTypes) ->
-  t_fun_range(Fun, ?product(ArgTypes)).
+t_fun_range(?function(_) = Fun, ArgTypes, Mode) ->
+  t_fun_range(Fun, ?product(ArgTypes), Mode).
 
-find_range(?function(List), ArgTypes) ->
-  find_range(t_elements(ArgTypes), List, ?none).
+find_range(?function(List), ArgTypes, Mode) ->
+  find_range(t_elements(ArgTypes), List, Mode, ?none).
 
-find_range([], _Clauses, AccRange) ->
+find_range([], _Clauses, _Mode, AccRange) ->
   AccRange;
-find_range([Domain|Rest], Clauses, AccRange) ->
-  NewRange = find_range_1(Domain, Clauses, ?none),
-  find_range(Rest, Clauses, t_sup(AccRange, NewRange)).
+find_range([Domain|Rest], Clauses, Mode, AccRange) ->
+  NewRange = find_range_1(Domain, Clauses, Mode),
+  find_range(Rest, Clauses, Mode, t_sup(AccRange, NewRange)).
 
-find_range_1(_Domain, [], AccRange) ->
+find_range_1(Domain, Clauses, Mode) ->
+  find_range_1(Domain, Clauses, Mode, ?none).
+
+find_range_1(_Domain, [], _Mode, AccRange) ->
   AccRange;
-find_range_1(Domain, [{DomainA, Range}|Rest], AccRange) ->
-  case overlap(Domain, DomainA) of
+find_range_1(Domain, [{DomainA, Range}|Rest], Mode, AccRange) ->
+  case overlap(Domain, DomainA, Mode) of
     false ->
-      find_range_1(Domain, Rest, AccRange);
+      find_range_1(Domain, Rest, Mode, AccRange);
     true ->
-      find_range_1(Domain, Rest, t_sup(Range, AccRange))
+      find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange))
   end.
 
-overlap(?any, _) ->
+overlap(?any, _, _) ->
   true;
-overlap(_, ?any) ->
+overlap(_, ?any, _) ->
   true;
-overlap(?product(List1), ?product(List2)) when is_list(List1), is_list(List2)->
-  overlap_lists(List1, List2);
-overlap(_, _) ->
+overlap(?product(List1), ?product(List2), Mode) when is_list(List1),
+						     is_list(List2)->
+  overlap_lists(List1, List2, Mode);
+overlap(_, _, _) ->
   false.
 
-overlap_lists([], []) ->
+overlap_lists([], [], _Mode) ->
   true;
-overlap_lists([Type1|Rest1], [Type2|Rest2]) ->
-  case t_inf(Type1, Type2) of
+overlap_lists([Type1|Rest1], [Type2|Rest2], Mode) ->
+  case t_inf(Type1, Type2, Mode) of
     ?none -> false;
-    _ -> overlap_lists(Rest1, Rest2)
+    _ -> overlap_lists(Rest1, Rest2, Mode)
   end;
-overlap_lists(_, _) ->
+overlap_lists(_, _, _Mode) ->
   false.
 
 -spec t_is_fun(erl_type()) -> boolean().
@@ -2740,7 +2747,9 @@ inf_clauses(?function(Clauses1), Fun2, Mode) ->
 inf_clauses([], _Fun2, _Mode, Acc) ->
   lists:reverse(Acc);
 inf_clauses([{Domain1, Range1}| Clauses1], Fun2, Mode, Acc) ->
-  Range2 = t_fun_range(Fun2, Domain1),
+  ?idebug("Checking clause: ~s\n",
+	  [t_to_string(?function([{Domain1, Range1}]))]),
+  Range2 = t_fun_range(Fun2, Domain1, Mode),
   case t_inf(Range1, Range2, Mode) of
     ?none ->
       inf_clauses(Clauses1, Fun2, Mode, Acc);
@@ -2754,8 +2763,7 @@ inf_clauses([{Domain1, Range1}| Clauses1], Fun2, Mode, Acc) ->
   end.
 
 inf_clauses_1(Domain1, Range1, ?function(Clauses2), Mode) ->
-  ?idebug("Possible clause: ~s\n",
-	  [t_to_string(?function([{Domain1, Range1}]))]),
+  ?idebug("Possible...\n",[]),
   inf_clauses_1(t_elements(Domain1), Range1, Clauses2, Mode, []).
 
 inf_clauses_1([], _Range1, _Clauses2, _Mode, Acc) ->
