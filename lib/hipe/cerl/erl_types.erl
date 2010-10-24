@@ -2776,7 +2776,7 @@ inf_clauses_2(_Domain1, _Range1, [], _Mode, Acc) ->
   Acc;
 inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
   ?idebug("Checking: ~s\n", [t_to_string(?function([{Domain2, Range2}]))]),
-  case t_inf(Domain1, Domain2, Mode) of
+  case my_inf(Domain1, Domain2, Mode) of
     ?none ->
       inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
     Domain ->
@@ -2787,6 +2787,20 @@ inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
 	  ?idebug("Adding: ~s\n", [t_to_string(?function([{Domain, Range}]))]),
 	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
       end
+  end.
+
+my_inf(?product(List1), ?product(List2), Mode) ->
+  my_inf_lists(List1, List2, Mode).
+
+my_inf_lists(List1, List2, Mode) ->
+    my_inf_lists(List1, List2, Mode, []).
+
+my_inf_lists([], [], _Mode, Acc) ->
+  ?product(lists:reverse(Acc));
+my_inf_lists([Type1|List1], [Type2|List2], Mode, Acc) ->
+  case t_inf(Type1, Type2, Mode) of
+    ?none -> ?none;
+    Type -> my_inf_lists(List1, List2, Mode, [Type| Acc])
   end.
 
 -spec t_inf_lists([erl_type()], [erl_type()]) -> [erl_type()].
