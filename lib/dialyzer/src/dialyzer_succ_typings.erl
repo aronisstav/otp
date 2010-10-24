@@ -396,8 +396,9 @@ collect_fun_info([], List) ->
 
 lookup_fun_type(Label, Arity, Callgraph, Plt) ->
   ID = lookup_name(Label, Callgraph),
-  case dialyzer_plt:lookup(Plt, ID) of
+  case dialyzer_plt:clean_lookup(Plt, ID) of
     none -> erl_types:t_fun(Arity, erl_types:t_any());
+    {value, {'fun', Type}} -> Type;
     {value, {RetT, ArgT}} -> erl_types:t_fun(ArgT, RetT)
   end.
 
