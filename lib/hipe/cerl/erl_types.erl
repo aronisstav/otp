@@ -2026,7 +2026,8 @@ combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
 combine_clauses(Clauses) ->
   Clauses1 = combine_duplicate_doms(Clauses),
-  combine_same_ranges(Clauses1).
+  Clauses2 = combine_same_ranges(Clauses1),
+  lists:sort(Clauses2).
 
 combine_duplicate_doms(Clauses) ->
   combine_duplicate_doms(Clauses, []).
