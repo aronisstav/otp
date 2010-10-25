@@ -228,18 +228,22 @@ check_domains([Dom|Doms]) ->
 %% We used to be more strict, e.g., all overloaded contracts had to be
 %% possible.
 check_contract_inf_list([FunType|Left], SuccType) ->
-  FunArgs = erl_types:t_fun_args(FunType),
-  case lists:any(fun erl_types:t_is_none_or_unit/1, FunArgs) of
+  case erl_types:t_is_none(FunType) of
     true -> check_contract_inf_list(Left, SuccType);
     false ->
-      STRange = erl_types:t_fun_range(SuccType),
-      case erl_types:t_is_none_or_unit(STRange) of
-	true -> ok;
+      FunArgs = erl_types:t_fun_args(FunType),
+      case lists:any(fun erl_types:t_is_none_or_unit/1, FunArgs) of
+	true -> check_contract_inf_list(Left, SuccType);
 	false ->
-	  Range = erl_types:t_fun_range(FunType),
-	  case erl_types:t_is_none(erl_types:t_inf(STRange, Range, opaque)) of
-	    true -> check_contract_inf_list(Left, SuccType);
-	    false -> ok
+	  STRange = erl_types:t_fun_range(SuccType),
+	  case erl_types:t_is_none_or_unit(STRange) of
+	    true -> ok;
+	    false ->
+	      Range = erl_types:t_fun_range(FunType),
+	      case erl_types:t_is_none(erl_types:t_inf(STRange, Range, opaque)) of
+		true -> check_contract_inf_list(Left, SuccType);
+		false -> ok
+	      end
 	  end
       end
   end;
