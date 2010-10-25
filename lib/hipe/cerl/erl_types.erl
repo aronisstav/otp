@@ -2809,7 +2809,9 @@ my_inf_lists([Type1|List1], [Type2|List2], Mode, Acc) ->
   case t_inf(Type1, Type2, Mode) of
     ?none -> ?none;
     Type -> my_inf_lists(List1, List2, Mode, [Type| Acc])
-  end.
+  end;
+my_inf_lists(_, _, _, _) ->
+  ?none.
 
 -spec t_inf_lists([erl_type()], [erl_type()]) -> [erl_type()].
 
@@ -3560,29 +3562,35 @@ t_is_subtype(?function(?any, _), ?function(_)) ->
 t_is_subtype(?function(Clauses1), ?function(?any, Range2)) ->
   {_, Range1} = collapse_clauses(Clauses1),
   t_is_subtype(Range1, Range2);
-t_is_subtype(?function(List1) = Fun1, ?function(_) = Fun2) ->
-  ?idebug("SUBTYPE CHECK:\nF1\t: ~s\nF2\t: ~s\n",
-	  lists:map(fun t_to_string/1, [Fun1, Fun2])),
-  Dom1 = [Dom || {Dom,_} <- List1],
-  Pred = fun(Domain) ->
-	     Simple = t_elements(Domain),
-	     Pred2 =
-	       fun(Dom) ->
-		   R1 = t_fun_range(Fun1, Dom),
-		   R2 = t_fun_range(Fun2, Dom),
-		   NDom = negate_domain(Dom),
-		   R3 = t_fun_range(Fun1, NDom),
-		   R4 = t_fun_range(Fun2, NDom),
-		   ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
-			   lists:map(fun t_to_string/1, [Dom, R1, R2])),
-		   ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
-			   lists:map(fun t_to_string/1, [NDom, R3, R4])),
-		   (t_is_none(R1) orelse t_is_subtype(R1, R2))
-		     andalso (t_is_none(R3) orelse t_is_subtype(R3, R4))
-	       end,
-	     lists:all(Pred2, Simple)
-	 end,
-  lists:all(Pred, Dom1);
+t_is_subtype(?function(List1) = Fun1, ?function(List2) = Fun2) ->
+  [{?product(L1),_}|_] = List1,
+  [{?product(L2),_}|_] = List2,
+  case length(L1) =:= length(L2) of
+    false -> false;
+    true ->
+      ?idebug("SUBTYPE CHECK:\nF1\t: ~s\nF2\t: ~s\n",
+	      lists:map(fun t_to_string/1, [Fun1, Fun2])),
+      Dom1 = [Dom || {Dom,_} <- List1],
+      Pred = fun(Domain) ->
+		 Simple = t_elements(Domain),
+		 Pred2 =
+		   fun(Dom) ->
+		       R1 = t_fun_range(Fun1, Dom),
+		       R2 = t_fun_range(Fun2, Dom),
+		       NDom = negate_domain(Dom),
+		       R3 = t_fun_range(Fun1, NDom),
+		       R4 = t_fun_range(Fun2, NDom),
+		       ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
+			       lists:map(fun t_to_string/1, [Dom, R1, R2])),
+		       ?idebug("Dom\t: ~s\nR1\t: ~s\nR2\t: ~s\n",
+			       lists:map(fun t_to_string/1, [NDom, R3, R4])),
+		       (t_is_none(R1) orelse t_is_subtype(R1, R2))
+			 andalso (t_is_none(R3) orelse t_is_subtype(R3, R4))
+		   end,
+		 lists:all(Pred2, Simple)
+	     end,
+      lists:all(Pred, Dom1)
+  end;
 t_is_subtype(T1, T2) ->
   t_is_subtype(T1, T2, structured).
 
