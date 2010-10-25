@@ -2223,6 +2223,8 @@ safe_comb(Type1, Type2) ->
     false -> false
   end.
 
+collapse_clauses([Clause]) ->
+  Clause;
 collapse_clauses(List) ->
   lists:foldl(fun({Domain, Range}, {DomAcc, RangeAcc}) ->
 		  {t_sup(Domain, DomAcc), t_sup(Range, RangeAcc)}
@@ -2741,8 +2743,17 @@ inf_function(Fun1, Fun2, Mode) ->
       end
   end.
 
-inf_clauses(?function(Clauses1), Fun2, Mode) ->
-  inf_clauses(Clauses1, Fun2, Mode, []).
+inf_clauses(?function([{?any, _}] = Clauses1), Fun2, Mode) ->
+  inf_clauses(Clauses1, Fun2, Mode, []);
+inf_clauses(?function(Clauses1), ?function([{?any, _}]) = Fun2, Mode) ->
+  inf_clauses(Clauses1, Fun2, Mode, []);
+inf_clauses(?function(Clauses1), ?function(Clauses2) = Fun2, Mode) ->
+  [{?product(List1),_}|_] = Clauses1,
+  [{?product(List2),_}|_] = Clauses2,
+  case length(List1)=:=length(List2) of
+    true -> inf_clauses(Clauses1, Fun2, Mode, []);
+    false -> []
+  end.
 
 inf_clauses([], _Fun2, _Mode, Acc) ->
   lists:reverse(Acc);
@@ -2752,7 +2763,7 @@ inf_clauses([{Domain1, Range1}| Clauses1], Fun2, Mode, Acc) ->
   Range2 = t_fun_range(Fun2, Domain1, Mode),
   case t_inf(Range1, Range2, Mode) of
     ?none ->
-      inf_clauses(Clauses1, Fun2, Mode, Acc);
+      inf_clauses(Clauses1, Fun2, Mode, [{Domain1, ?none}| Acc]);
     _ ->
       case inf_clauses_1(Domain1, Range1, Fun2, Mode) of
 	[] ->
@@ -2788,13 +2799,9 @@ inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
     ?none ->
       inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
     Domain ->
-      case t_inf(Range1, Range2, Mode) of
-	?none ->
-	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
-	Range ->
-	  ?idebug("Adding: ~s\n", [t_to_string(?function([{Domain, Range}]))]),
-	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
-      end
+      Range = t_inf(Range1, Range2, Mode),
+      ?idebug("Adding: ~s\n", [t_to_string(?function([{Domain, Range}]))]),
+      inf_clauses_2(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
   end.
 
 my_inf(?product(List1), ?product(List2), Mode) ->
@@ -3566,15 +3573,16 @@ t_is_subtype(?function(?any, _), ?function(_)) ->
 t_is_subtype(?function(Clauses1), ?function(?any, Range2)) ->
   {_, Range1} = collapse_clauses(Clauses1),
   t_is_subtype(Range1, Range2);
-t_is_subtype(?function(List1) = Fun1, ?function(List2) = Fun2) ->
-  [{?product(L1),_}|_] = List1,
-  [{?product(L2),_}|_] = List2,
-  case length(L1) =:= length(L2) of
+t_is_subtype(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2) ->
+  {CDomain1, CRange1} = collapse_clauses(Clauses1),
+  {CDomain2, CRange2} = collapse_clauses(Clauses2),
+  case (t_is_subtype(CDomain1, CDomain2) andalso
+	t_is_subtype(CRange1, CRange2)) of
     false -> false;
     true ->
       ?idebug("SUBTYPE CHECK:\nF1\t: ~s\nF2\t: ~s\n",
 	      lists:map(fun t_to_string/1, [Fun1, Fun2])),
-      Dom1 = [Dom || {Dom,_} <- List1],
+      Domains1 = [Dom || {Dom,_} <- Clauses1],
       Pred = fun(Domain) ->
 		 Simple = t_elements(Domain),
 		 Pred2 =
@@ -3593,7 +3601,7 @@ t_is_subtype(?function(List1) = Fun1, ?function(List2) = Fun2) ->
 		   end,
 		 lists:all(Pred2, Simple)
 	     end,
-      lists:all(Pred, Dom1)
+      lists:all(Pred, Domains1)
   end;
 t_is_subtype(T1, T2) ->
   t_is_subtype(T1, T2, structured).
