@@ -2798,7 +2798,11 @@ inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
   end.
 
 my_inf(?product(List1), ?product(List2), Mode) ->
-  my_inf_lists(List1, List2, Mode).
+  my_inf_lists(List1, List2, Mode);
+my_inf(?any, Type, _Mode) ->
+  Type;
+my_inf(Type, ?any, _Mode) ->
+  Type.
 
 my_inf_lists(List1, List2, Mode) ->
     my_inf_lists(List1, List2, Mode, []).
