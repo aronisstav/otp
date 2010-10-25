@@ -3110,9 +3110,11 @@ t_unify(?list(Contents1, Termination1, Size),
   {Contents, VarMap1} = t_unify(Contents1, Contents2, VarMap, Opaques),
   {Termination, VarMap2} = t_unify(Termination1, Termination2, VarMap1, Opaques),
   {?list(Contents, Termination, Size), VarMap2};
-t_unify(?product(Types1), ?product(Types2), VarMap, Opaques) ->
-  {Types, VarMap1} = unify_lists(Types1, Types2, VarMap, Opaques),
-  {?product(Types), VarMap1};
+t_unify(?product(Types1) = P1, ?product(Types2) = P2, VarMap, Opaques) ->
+  case unify_lists(Types1, Types2, VarMap, Opaques) of
+    {Types, VarMap1} -> {?product(Types), VarMap1};
+    mismatch -> throw({mismatch, P1, P2})
+  end;
 t_unify(?tuple(?any, ?any, ?any) = T, ?tuple(?any, ?any, ?any), VarMap, _Opaques) ->
   {T, VarMap};
 t_unify(?tuple(Elements1, Arity, _), 
@@ -3174,7 +3176,9 @@ unify_lists([T1|Left1], [T2|Left2], VarMap, Acc, Opaques) ->
   {NewT, NewVarMap} = t_unify(T1, T2, VarMap, Opaques),
   unify_lists(Left1, Left2, NewVarMap, [NewT|Acc], Opaques);
 unify_lists([], [], VarMap, Acc, _Opaques) ->
-  {lists:reverse(Acc), VarMap}.
+  {lists:reverse(Acc), VarMap};
+unify_lists(_, _, _, _, _) ->
+  mismatch.
 
 %%t_assign_variables_to_subtype(T1, T2) ->
 %%  try 
