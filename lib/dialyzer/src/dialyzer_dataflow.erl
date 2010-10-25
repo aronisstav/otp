@@ -625,18 +625,20 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	end;
       local -> IsBIF = false, GenSig
     end,
-  {SigArgs, SigRange} =
+  {SigArgs, SigRange, GenSigRange} =
     %% if there is hard-coded or contract information with opaque types,
     %% the checking for possible type violations needs to take place w.r.t.
     %% this information and not w.r.t. the structure-based success typing.
     case prefer_opaque_types(CArgs, BifArgs) of
-      true -> {AnyArgs, t_any()}; % effectively forgets the success typing
+      true ->
+	{AnyArgs, t_any(), t_any()}; % effectively forgets the success typing
       false ->
 	case Sig of
 	  {value, {'fun', Type}} ->
-	    {erl_types:t_fun_args(Type), erl_types:t_fun_range(Type, ArgTypes)};
-	  {value, {SR, SA}} -> {SA, SR};
-	  none -> {AnyArgs, t_any()}
+	    {erl_types:t_fun_args(Type), erl_types:t_fun_range(Type, ArgTypes),
+	     erl_types:t_fun_range(Type)};
+	  {value, {SR, SA}} -> {SA, SR, SR};
+	  none -> {AnyArgs, t_any(), t_any()}
 	end
     end,
   ArgModeMask = [case lists:member(Arg, Opaques) of
@@ -681,6 +683,7 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
   ?debug("BifRet: ~s\n", [erl_types:t_to_string(BifRange(NewArgTypes))]),
   ?debug("ContrRet: ~s\n", [erl_types:t_to_string(CRange(TmpArgTypes))]),
   ?debug("SigRet: ~s\n", [erl_types:t_to_string(SigRange)]),
+  ?debug("GenSigRet: ~s\n", [erl_types:t_to_string(GenSigRange)]),
   State1 =
     case dialyzer_callgraph:get_race_detection(Callgraph) andalso
          dialyzer_races:get_race_analysis(Races) of
@@ -707,7 +710,7 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
     end,
   FailedConj = any_none([RetWithoutLocal|NewArgTypes]),
   IsFailBif = t_is_none(BifRange(BifArgs)),
-  IsFailSig = t_is_none(SigRange),
+  IsFailSig = t_is_none(GenSigRange),
   State2 =
     case FailedConj andalso not (IsFailBif orelse IsFailSig) of
       true ->
