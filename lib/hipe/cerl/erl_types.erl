@@ -2743,33 +2743,44 @@ inf_function(Fun1, Fun2, Mode) ->
       end
   end.
 
-inf_clauses(?function([{?any, _}] = Clauses1), Fun2, Mode) ->
-  inf_clauses(Clauses1, Fun2, Mode, []);
-inf_clauses(?function(Clauses1), ?function([{?any, _}]) = Fun2, Mode) ->
-  inf_clauses(Clauses1, Fun2, Mode, []);
+inf_clauses(?function([{?any, _}] = Clauses1), ?function(Clauses2) = Fun2,
+	    Mode) ->
+  CClause2 = collapse_clauses(Clauses2),
+  inf_clauses(Clauses1, Fun2, CClause2, Mode, []);
+inf_clauses(?function(Clauses1), ?function([{?any, _} = CClause2]) = Fun2,
+	    Mode) ->
+  inf_clauses(Clauses1, Fun2, CClause2, Mode, []);
 inf_clauses(?function(Clauses1), ?function(Clauses2) = Fun2, Mode) ->
   [{?product(List1),_}|_] = Clauses1,
   [{?product(List2),_}|_] = Clauses2,
   case length(List1)=:=length(List2) of
-    true -> inf_clauses(Clauses1, Fun2, Mode, []);
+    true ->
+      CClause2 = collapse_clauses(Clauses2),
+      inf_clauses(Clauses1, Fun2, CClause2, Mode, []);
     false -> []
   end.
 
-inf_clauses([], _Fun2, _Mode, Acc) ->
+inf_clauses([], _Fun2, _CClause2, _Mode, Acc) ->
   lists:reverse(Acc);
-inf_clauses([{Domain1, Range1}| Clauses1], Fun2, Mode, Acc) ->
+inf_clauses([{Domain1, Range1}| Clauses1], Fun2,
+	    {CDomain2, _} = CClause2, Mode, Acc) ->
   ?idebug("Checking clause: ~s\n",
 	  [t_to_string(?function([{Domain1, Range1}]))]),
   Range2 = t_fun_range(Fun2, Domain1, Mode),
   case t_inf(Range1, Range2, Mode) of
     ?none ->
-      inf_clauses(Clauses1, Fun2, Mode, [{Domain1, ?none}| Acc]);
+      case t_inf(Domain1, CDomain2, Mode) of
+	?none ->
+	  inf_clauses(Clauses1, Fun2, CClause2, Mode, Acc);
+	Inf ->
+	  inf_clauses(Clauses1, Fun2, Mode, CClause2, [{Inf, ?none}| Acc])
+      end;
     _ ->
       case inf_clauses_1(Domain1, Range1, Fun2, Mode) of
 	[] ->
-	  inf_clauses(Clauses1, Fun2, Mode, Acc);
+	  inf_clauses(Clauses1, Fun2, CClause2, Mode, Acc);
 	NewAcc ->
-	  inf_clauses(Clauses1, Fun2, Mode, NewAcc ++ Acc)
+	  inf_clauses(Clauses1, Fun2, CClause2, Mode, NewAcc ++ Acc)
       end
   end.
 
