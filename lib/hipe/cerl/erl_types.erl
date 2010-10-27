@@ -1102,16 +1102,7 @@ t_fun_range(?function(_) = Fun, ArgTypes, Mode) ->
   t_fun_range(Fun, ?product(ArgTypes), Mode).
 
 find_range(?function(List), ArgTypes, Mode) ->
-  find_range(t_elements(ArgTypes), List, Mode, ?none).
-
-find_range([], _Clauses, _Mode, AccRange) ->
-  AccRange;
-find_range([Domain|Rest], Clauses, Mode, AccRange) ->
-  NewRange = find_range_1(Domain, Clauses, Mode),
-  find_range(Rest, Clauses, Mode, t_sup(AccRange, NewRange)).
-
-find_range_1(Domain, Clauses, Mode) ->
-  find_range_1(Domain, Clauses, Mode, ?none).
+  find_range_1(ArgTypes, List, Mode, ?none).
 
 find_range_1(_Domain, [], _Mode, AccRange) ->
   AccRange;
