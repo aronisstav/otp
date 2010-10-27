@@ -1051,11 +1051,8 @@ t_matchstate_update_slot(New, Type, Slot) ->
 t_fun() ->
   ?function(?any, ?any).
 
--spec t_fun(erl_type())                  -> erl_type();
-	   ([{[erl_type()],erl_type()}]) -> erl_type().
+-spec t_fun(erl_type()) -> erl_type().
 
-t_fun(List) when is_list(List) ->
-  ?function([{?product(Domain), Range} || {Domain, Range} <- List]);
 t_fun(Range) ->
   ?function(?any, Range).
 
