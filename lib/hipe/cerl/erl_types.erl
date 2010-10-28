@@ -1069,9 +1069,9 @@ t_fun_args(?function(?any, _)) ->
   unknown;
 t_fun_args(?function(?product(Domain), _)) when is_list(Domain) ->
   Domain;
-t_fun_args(?function(List)) ->
+t_fun_args(?function([{Domain0, _}| List])) ->
   Fun = fun({Domain, _}, TypeAcc) -> t_sup(Domain, TypeAcc) end,
-  ?product(Domain) = lists:foldl(Fun, ?none, List),
+  ?product(Domain) = lists:foldl(Fun, Domain0, List),
   Domain.
 
 -spec t_fun_arity(erl_type()) -> 'unknown' | non_neg_integer().
@@ -2009,7 +2009,7 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 -spec t_intersection([erl_type()]) -> erl_type().
 
 t_intersection(Functions) ->
-  Clauses = [{Domain, Range} || ?function(Domain, Range) <- Functions],
+  Clauses = [Clause || ?function(TClauses) <- Functions, Clause <- TClauses],
   ?function(combine_clauses(Clauses)).
 
 -spec t_intersection(erl_type(), erl_type()) -> erl_type().
@@ -2247,15 +2247,9 @@ t_sup(?atom(Set1), ?atom(Set2)) ->
 t_sup(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   t_bitstr(gcd(gcd(U1, U2), abs(B1-B2)), lists:min([B1, B2]));
 t_sup(?function(Clauses1), ?function(Clauses2)) ->
-  ?idebug("SUPREMUM:\n",[]),
   case {check_arity(Clauses1), check_arity(Clauses2)} of
     {N, N} when is_integer(N), N>0 ->
-      {NClauses1, NClauses2} =
-	case Clauses1 > Clauses2 of
-	  true -> {Clauses1, Clauses2};
-	  false -> {Clauses2, Clauses1}
-	end,
-      ?function(combine_clauses(NClauses1 ++ NClauses2));
+      ?function(combine_clauses(Clauses1 ++ Clauses2));
     {_, _} ->
       {Domain1, Range1} = collapse_clauses(Clauses1),
       {Domain2, Range2} = collapse_clauses(Clauses2),
@@ -2713,80 +2707,39 @@ t_inf(T1, ?opaque(_) = T2, opaque) ->
 t_inf(#c{}, #c{}, _) ->
   ?none.
 
-inf_function(Fun1, Fun2, Mode) ->
-  {NFun1, NFun2} =
-    case Fun1 > Fun2 of
-      true -> {Fun1, Fun2};
-      false -> {Fun2, Fun1}
-    end,
-  Clauses = inf_clauses(NFun1, NFun2, Mode),
-  case Clauses of
-    [] -> ?none;
-    _ ->
-      ?idebug("Infimum\t: ~s\n",
-	      [t_to_string(?function(combine_clauses(Clauses)))]),
-      ?function(combine_clauses(Clauses))
-  end.
-
-inf_clauses(?function(Clauses1), ?function(Clauses2) = Fun2, Mode) ->
+inf_function(?function(Clauses1), ?function(Clauses2), Mode) ->
   {CDomain1, _} = collapse_clauses(Clauses1),
   {CDomain2, _} = collapse_clauses(Clauses2),
   case t_inf(CDomain1, CDomain2, Mode) of
-    ?none -> [];
+    ?none -> ?none;
     InfDomain ->
-      inf_clauses(Clauses1, Fun2, InfDomain, Mode, [])
-  end.
-
-inf_clauses([], _Fun2, _InfDomain, _Mode, Acc) ->
-  lists:reverse(Acc);
-inf_clauses([{Domain1, Range1}| Clauses1], Fun2, InfDomain, Mode, Acc) ->
-  ?idebug("Checking clause: ~s\n",
-	  [t_to_string(?function([{Domain1, Range1}]))]),
-  Range2 = t_fun_range(Fun2, Domain1, Mode),
-  case t_inf(Range1, Range2, Mode) of
-    ?none ->
-      inf_clauses(Clauses1, Fun2, InfDomain, Mode, Acc);
-    _ ->
-      case inf_clauses_1(Domain1, Range1, Fun2, Mode) of
-	[] ->
-	  inf_clauses(Clauses1, Fun2, InfDomain, Mode, Acc);
-	NewAcc ->
-	  inf_clauses(Clauses1, Fun2, InfDomain, Mode, NewAcc ++ Acc)
+      case inf_clauses(Clauses1, Clauses2, Mode) of
+	[] -> ?function(InfDomain, ?none);
+	Clauses -> ?function(combine_clauses(Clauses))
       end
   end.
 
-inf_clauses_1(Domain1, Range1, ?function(Clauses2), Mode) ->
-  ?idebug("Possible...\n",[]),
-  inf_clauses_1(t_elements(Domain1), Range1, Clauses2, Mode, []).
+inf_clauses(Clauses1, Clauses2, Mode) ->
+  inf_clauses(Clauses1, Clauses2, Mode, []).
 
-inf_clauses_1([], _Range1, _Clauses2, _Mode, Acc) ->
+inf_clauses([], _Clauses2, _Mode, Acc) ->
+  lists:reverse(Acc);
+inf_clauses([{Domain1, Range1}| Clauses1], Clauses2, Mode, Acc) ->
+  NewAcc = inf_clauses(Domain1, Range1, Clauses2, Mode, Acc),
+  inf_clauses(Clauses1, Clauses2, Mode, NewAcc).
+
+inf_clauses(_Domain1, _Range1, [], _Mode, Acc) ->
   Acc;
-inf_clauses_1([Domain1| Domains1], Range1, Clauses2, Mode, Acc) ->
-  case inf_clauses_2(Domain1, Range1, Clauses2, Mode) of
-    [] ->
-      inf_clauses_1(Domains1, Range1, Clauses2, Mode, Acc);
-    NewClauses ->
-      ?idebug("Adding clause: ~s\n", [t_to_string(?function(NewClauses))]),
-      inf_clauses_1(Domains1, Range1, Clauses2, Mode, NewClauses ++ Acc)
-  end.
-
-inf_clauses_2(Domain1, Range1, Clauses2, Mode) ->
-  inf_clauses_2(Domain1, Range1, Clauses2, Mode, []).
-
-inf_clauses_2(_Domain1, _Range1, [], _Mode, Acc) ->
-  Acc;
-inf_clauses_2(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
-  ?idebug("Checking: ~s\n", [t_to_string(?function([{Domain2, Range2}]))]),
+inf_clauses(Domain1, Range1, [{Domain2, Range2}| Clauses2], Mode, Acc) ->
   case domain_inf(Domain1, Domain2, Mode) of
     ?none ->
-      inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
+      inf_clauses(Domain1, Range1, Clauses2, Mode, Acc);
     Domain ->
       case t_inf(Range1, Range2, Mode) of
 	?none ->
-	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, Acc);
+	  inf_clauses(Domain1, Range1, Clauses2, Mode, Acc);
 	Range ->
-	  ?idebug("Adding: ~s\n", [t_to_string(?function(Domain, Range))]),
-	  inf_clauses_2(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
+	  inf_clauses(Domain1, Range1, Clauses2, Mode, [{Domain, Range}| Acc])
       end
   end.
 
@@ -3532,8 +3485,8 @@ t_is_equal(?unit, _) -> false;
 t_is_equal(_, ?unit) -> false;
 t_is_equal(?none, _) -> false;
 t_is_equal(_, ?none) -> false;
-
-t_is_equal(?function(_, _), ?function(_, _)) -> false;
+t_is_equal(?function(Domain1, Range1), ?function(Domain2, Range2)) ->
+  t_is_equal(Domain1, Domain2) andalso t_is_equal(Range1, Range2);
 t_is_equal(?function(_) = Fun1, ?function(_) = Fun2) ->
   t_is_equal_function(Fun1, Fun2);
 t_is_equal(?list(Contents1, Termination1, Size),
@@ -3559,7 +3512,6 @@ t_is_equal(?tuple_set(List), ?tuple(_, Arity, _) = T) ->
   t_is_equal_tuple_sets(List, [{Arity, [T]}]);
 t_is_equal(?tuple(_, Arity, _) = T, ?tuple_set(List)) ->
   t_is_equal_tuple_sets(List, [{Arity, [T]}]);
-%% be careful: here and in the next clause T can be ?opaque
 t_is_equal(?union(U1), T) ->
   ?union(U2) = force_union(T),
   t_is_equal_lists(U1, U2);
@@ -3569,11 +3521,24 @@ t_is_equal(T, ?union(U2)) ->
 t_is_equal(_, _) -> false.
 
 t_is_equal_function(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2) ->
-  Pred =
-    fun({Domain,_}) ->
-	t_is_equal(t_fun_range(Fun1, Domain),t_fun_range(Fun2, Domain))
-    end,
-  lists:all(Pred, Clauses1) andalso lists:all(Pred, Clauses2).
+  {CDomain1, CRange1} = collapse_clauses(Clauses1),
+  {CDomain2, CRange2} = collapse_clauses(Clauses2),
+  case (t_is_equal(CDomain1, CDomain2) andalso
+	t_is_equal(CRange1, CRange2)) of
+    false -> false;
+    true ->
+      Fold =
+	fun({Domain,_}, AccIn) ->
+	    ordsets:add_element(Domain, AccIn)
+	end,
+      Domains0 = lists:foldl(Fold, ordsets:new(), Clauses1),
+      Domains = lists:foldl(Fold, Domains0, Clauses2),
+      Pred =
+	fun(Domain) ->
+	    t_is_equal(t_fun_range(Fun1, Domain), t_fun_range(Fun2, Domain))
+	end,
+      lists:all(Pred, Domains)
+  end.
 
 t_is_equal_lists([], []) ->
   true;
@@ -3598,7 +3563,7 @@ t_is_equal_tuple_sets(_, _) -> false.
 -spec t_is_subtype(erl_type(), erl_type()) -> boolean().
 
 t_is_subtype(T1, T2) ->
-  Inf = t_inf(T1, T2, opaque),
+  Inf = t_inf(T1, T2),
   t_is_equal(T1, Inf).
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
