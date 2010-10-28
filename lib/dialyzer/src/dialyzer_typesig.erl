@@ -1956,10 +1956,11 @@ solve_cs([], Map, MapDict, _State) ->
 solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
   LhsType = lookup_type(Lhs, Map),
   RhsType = lookup_type(Rhs, Map),
-  Inf = t_inf(LhsType, RhsType, opaque),
-  ?debug("Solving: ~s :: ~s ~w ~s :: ~s\n\tInf: ~s\n",
+  ?debug("Solving: ~s :: ~s ~w ~s :: ~s\n",
 	 [format_type(Lhs), format_type(LhsType), Op,
-	  format_type(Rhs), format_type(RhsType), format_type(Inf)]),
+	  format_type(Rhs), format_type(RhsType)]),
+  Inf = t_inf(LhsType, RhsType, opaque),
+  ?debug("Inf: ~s\n", [format_type(Inf)]),
   case t_is_none(Inf) of
     true -> error;
     false ->
