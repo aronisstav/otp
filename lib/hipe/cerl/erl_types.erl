@@ -1089,7 +1089,7 @@ t_fun_range(?function(List)) ->
   Fun = fun({_, Range}, TypeAcc) -> t_sup(Range, TypeAcc) end,
   lists:foldl(Fun, ?none, List).
 
--spec t_fun_range(erl_type(), erl_type()) -> erl_type().
+-spec t_fun_range(erl_type(), erl_type() | [erl_type()]) -> erl_type().
 
 t_fun_range(Fun, ArgTypes) ->
   t_fun_range(Fun, ArgTypes, opaque).
@@ -2208,7 +2208,8 @@ collapse_clauses(List) ->
 		  {t_sup(Domain, DomAcc), t_sup(Range, RangeAcc)}
 	      end, {?none, ?none}, List).
 
--spec t_get_intersections(erl_type()) -> [{erl_type(),[erl_type()]}].
+-spec t_get_intersections(erl_type()) ->
+			     [{[erl_type()] | erl_type(), erl_type()}].
 
 t_get_intersections(?function(List)) ->
   [format_intersection(Intr) || Intr <- List].
