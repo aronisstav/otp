@@ -2240,9 +2240,9 @@ state__lookup_undef_var(Tree, #state{callgraph = CG, plt = Plt}) ->
   case dialyzer_callgraph:lookup_rec_var(Label, CG) of
     error -> error;
     {ok, MFA} ->
-      case dialyzer_plt:lookup(Plt, MFA) of
+      case dialyzer_plt:clean_lookup(Plt, MFA) of
 	none -> error;
-	{value, {RetType, ArgTypes}} -> {ok, t_fun(ArgTypes, RetType)}
+	{value, {'fun', Type}} -> {ok, Type}
       end
   end.
 

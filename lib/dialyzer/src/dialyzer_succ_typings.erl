@@ -503,9 +503,8 @@ get_top_level_signatures(Code, Records, Contracts) ->
   lists:foreach(fun(C) -> 
 		    io:format("Contract for non-existing function: ~w\n",[C])
 		end, ErrorContracts),
-  Types = [{MFA, dialyzer_plt:lookup(Plt2, MFA)} || MFA <- Functions],
-  Sigs = [{{F, A}, erl_types:t_fun(ArgT, RetT)} 
-	  || {{_M, F, A}, {value, {RetT, ArgT}}} <- Types],
+  Types = [{MFA, dialyzer_plt:clean_lookup(Plt2, MFA)} || MFA <- Functions],
+  Sigs = [{{F, A}, Type} || {{_M, F, A}, {value, {'fun', Type}}} <- Types],
   ordsets:from_list(Sigs).
 
 get_def_plt() ->

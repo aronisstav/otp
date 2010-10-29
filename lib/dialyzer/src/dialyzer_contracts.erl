@@ -453,12 +453,11 @@ get_invalid_contract_warnings_modules([], _CodeServer, _Plt, Acc) ->
 
 get_invalid_contract_warnings_funs([{MFA, {FileLine, Contract}}|Left],
 				   Plt, RecDict, Acc) ->
-  case dialyzer_plt:lookup(Plt, MFA) of
+  case dialyzer_plt:clean_lookup(Plt, MFA) of
     none ->
       %% This must be a contract for a non-available function. Just accept it.
       get_invalid_contract_warnings_funs(Left, Plt, RecDict, Acc);
-    {value, {Ret, Args}} ->
-      Sig = erl_types:t_fun(Args, Ret),
+    {value, {'fun', Sig}} ->
       NewAcc =
 	case check_contract(Contract, Sig) of
 	  {error, invalid_contract} ->
