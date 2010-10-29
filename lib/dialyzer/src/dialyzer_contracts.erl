@@ -24,6 +24,7 @@
 	 check_contracts/3,
 	 contracts_without_fun/3,
 	 contract_to_string/1,
+	 get_intersections/1,
 	 get_invalid_contract_warnings/3,
 	 get_contract_args/1,
 	 get_contract_return/1,
@@ -68,6 +69,12 @@
 -endif.
 
 %%-----------------------------------------------------------------------
+
+-spec get_intersections(#contract{}) ->
+			   [{[erl_types:erl_type()], erl_types:erl_type()}].
+
+get_intersections(#contract{contracts = Cs}) ->
+  [Intr || {Fun,_} <- Cs, Intr <- erl_types:t_get_intersections(Fun)].
 
 -spec get_contract_return(#contract{}) -> erl_types:erl_type().
 

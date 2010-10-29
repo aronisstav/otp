@@ -647,12 +647,19 @@ handle_call(Call, DefinedVars, State) ->
 get_plt_constr(MFA, Dst, ArgVars, State) ->
   ?debug("Looking ~p in plt\n",[MFA]),
   Plt = state__plt(State),
-  PltRes = dialyzer_plt:lookup(Plt, MFA),
   PltCleanRes = dialyzer_plt:clean_lookup(Plt, MFA),
-  Opaques = State#state.opaques,
-  Module = State#state.module,
+  State1 =
+    case PltCleanRes of
+      none -> State;
+      {value, {'fun', PltType}} ->
+	?debug("Making intersectioned constraint\n",[]),
+	PLTIntersections = erl_types:t_get_intersections(PltType),
+	state_store_intersections(PLTIntersections, ArgVars, Dst, State);
+      {value, {PltRetType, PltArgTypes}} ->
+	state__store_conj_lists([Dst|ArgVars], sub,
+				[PltRetType|PltArgTypes], State)
+    end,
   SCCMFAs = State#state.mfas,
-  {FunModule, _, _} = MFA,
   Contract =
     case lists:member(MFA, SCCMFAs) of
       true -> none;
@@ -660,48 +667,16 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
     end,
   case Contract of
     none ->
-      case PltRes of
-	none -> State;
-	{value, {PltRetType, PltArgTypes}} ->
-	  case PltCleanRes of
-	    {value, {'fun', PltType}} ->
-	      ?debug("Making intersectioned constraint\n",[]),
-	      Intersections = erl_types:t_get_intersections(PltType),
-	      Conjs = intersect_into_conj(Intersections, ArgVars, Dst),
-	      Disjs = mk_disj_constraint_list(Conjs),
-	      state__store_conj(Disjs, State);
-	    PltRes ->
-	      state__store_conj_lists([Dst|ArgVars], sub,
-				      [PltRetType|PltArgTypes], State)
-	  end
-      end;
-    {value, #contract{args = GenArgs} = C} ->
-      {RetType, ArgCs} =
-	case PltRes of
-	  none ->
-	    {?mk_fun_var(fun(Map) ->
-			     ArgTypes = lookup_type_list(ArgVars, Map),
-			     dialyzer_contracts:get_contract_return(C, ArgTypes)
-			 end, ArgVars), GenArgs};
-	  {value, {PltRetType, PltArgTypes}} ->
-	    %% Need to combine the contract with the success typing.
-	    {?mk_fun_var(
-		fun(Map) ->
-		    ArgTypes0 = lookup_type_list(ArgVars, Map),
-		    ArgTypes = case FunModule =:= Module of
-				 false ->
-				   List = lists:zip(PltArgTypes, ArgTypes0),
-				   [erl_types:t_unopaque_on_mismatch(T1, T2, Opaques)
-				    || {T1, T2} <- List];
-				 true -> ArgTypes0
-			       end,
-		    CRet = dialyzer_contracts:get_contract_return(C, ArgTypes),
-		    t_inf(CRet, PltRetType, opaque)
-		end, ArgVars),
-	     [t_inf(X, Y, opaque) || {X, Y} <- lists:zip(GenArgs, PltArgTypes)]}
-	end,
-      state__store_conj_lists([Dst|ArgVars], sub, [RetType|ArgCs], State)
+      State1;
+    {value, C} ->
+      CIntersections = dialyzer_contracts:get_intersections(C),
+      state_store_intersections(CIntersections, ArgVars, Dst, State1)
   end.
+
+state_store_intersections(Intersections, ArgVars, Dst, State) ->
+  Conjs = intersect_into_conj(Intersections, ArgVars, Dst),
+  Disjs = mk_disj_constraint_list(Conjs),
+  state__store_conj(Disjs, State).
 
 intersect_into_conj(Intersections, ArgVars, Dst) ->
   intersect_into_conj(Intersections, ArgVars, Dst, []).
