@@ -2852,15 +2852,21 @@ pp_constraints([#constraint{lhs = Lhs, op = Op, rhs = Rhs}], _Separator,
 	       Level, MaxDepth, _State) ->
   io:format("~s ~w ~s", [format_type(Lhs), Op, format_type(Rhs)]),
   erlang:max(Level, MaxDepth);
+pp_constraints([#constraint{lhs = Lhs, op = Op, rhs = Rhs}|Tail], Separator,
+	       Level, MaxDepth, State) ->
+  io:format("~s ~w ~s ~s ", [format_type(Lhs), Op, format_type(Rhs),Separator]),
+  pp_constraints(Tail, Separator, Level, MaxDepth, State);
+pp_constraints([#constraint_apply{id = Id, ret = Ret, args = Args}],
+	       _Separator, Level, MaxDepth, _State) ->
+  io:format("Apply ~w: (~w -> ~w)",
+	    [Id, lists:map(fun erl_types:t_to_string/1, Args),
+	     t_var_name(Ret)]),
+  erlang:max(Level, MaxDepth);
 pp_constraints([#constraint_apply{id = Id, ret = Ret, args = Args}|Tail],
 	       Separator, Level, MaxDepth, State) ->
   io:format("Apply ~w: (~w -> ~w) ~s ",
 	    [Id, lists:map(fun erl_types:t_var_name/1, Args),
 	     t_var_name(Ret), Separator]),
-  pp_constraints(Tail, Separator, Level, MaxDepth, State);
-pp_constraints([#constraint{lhs = Lhs, op = Op, rhs = Rhs}|Tail], Separator,
-	       Level, MaxDepth, State) ->
-  io:format("~s ~w ~s ~s ", [format_type(Lhs), Op, format_type(Rhs),Separator]),
   pp_constraints(Tail, Separator, Level, MaxDepth, State);
 pp_constraints([#constraint_list{type = Type, list = List, id = Id}],
 	       _Separator, Level, MaxDepth, State) ->
