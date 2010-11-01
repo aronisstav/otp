@@ -653,41 +653,41 @@ handle_call(Call, DefinedVars, State) ->
   end.
 
 get_plt_constr(MFA, Dst, ArgVars, State) ->
+  Plt = state__plt(State),
+  SCCMFAs = State#state.mfas,
+  Contract =
+    case lists:member(MFA, SCCMFAs) of
+      true -> none;
+      false -> dialyzer_plt:lookup_contract(Plt, MFA)
+    end,
+  State1 =
+    case Contract of
+      none ->
+	State;
+      {value, C} ->
+	CIntersections = dialyzer_contracts:get_intersections(C),
+	state_store_intersections(CIntersections, ArgVars, Dst, State)
+    end,
   case state__lookup_rec_var_in_scope(MFA, State) of
     {ok, Var} ->
-      ?debug("Adding apply constraint for ~p (~p)\n",
+      ?debug("Making apply constraint for ~p (~p)\n",
 	     [MFA, cerl_trees:get_label(Var)]),
-      state__store_conj_apply(cerl_trees:get_label(Var), Dst, ArgVars, State);
+      state__store_conj_apply(cerl_trees:get_label(Var), Dst, ArgVars, State1);
     error ->
       ?debug("Looking ~p in plt\n",[MFA]),
-      Plt = state__plt(State),
       PltCleanRes = dialyzer_plt:clean_lookup(Plt, MFA),
-      State1 =
-	case PltCleanRes of
-	  none ->
-	    ?debug("No constraint\n",[]),
-	    State;
-	  {value, {'fun', PltType}} ->
-	    ?debug("Making intersectioned constraint\n",[]),
-	    PLTIntersections = erl_types:t_get_intersections(PltType),
-	    state_store_intersections(PLTIntersections, ArgVars, Dst, State);
-	  {value, {PltRetType, PltArgTypes}} ->
-	    ?debug("Making plain constraint\n",[]),
-	    state__store_conj_lists([Dst|ArgVars], sub,
-				    [PltRetType|PltArgTypes], State)
-	end,
-      SCCMFAs = State#state.mfas,
-      Contract =
-        case lists:member(MFA, SCCMFAs) of
-          true -> none;
-          false -> dialyzer_plt:lookup_contract(Plt, MFA)
-        end,
-      case Contract of
+      case PltCleanRes of
 	none ->
+	  ?debug("No constraint\n",[]),
 	  State1;
-	{value, C} ->
-	  CIntersections = dialyzer_contracts:get_intersections(C),
-	  state_store_intersections(CIntersections, ArgVars, Dst, State1)
+	{value, {'fun', PltType}} ->
+	  ?debug("Making intersectioned constraint: ~p\n",[MFA]),
+	  PLTIntersections = erl_types:t_get_intersections(PltType),
+	  state_store_intersections(PLTIntersections, ArgVars, Dst, State1);
+	{value, {PltRetType, PltArgTypes}} ->
+	  ?debug("Making plain constraint\n",[]),
+	  state__store_conj_lists([Dst|ArgVars], sub,
+				  [PltRetType|PltArgTypes], State1)
       end
   end.
 
