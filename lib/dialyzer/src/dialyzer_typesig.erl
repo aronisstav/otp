@@ -1779,11 +1779,12 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
 	case state__is_self_rec(Id, State) of
 	  true -> solve_self_recursive(Cs, Map, MapDict, Id, t_none(), State);
 	  false ->
+	    NewCs0 = remove_apply_constraints(Cs, Map),
 	    NewCs =
-	      try mk_disj_norm_form(Cs) of
+	      try mk_disj_norm_form(NewCs0) of
 		Cs0 -> Cs0
 	      catch
-		throw:too_many_disj -> Cs
+		throw:too_many_disj -> NewCs0
 	      end,
 	    solve_ref_or_list(NewCs, Map, MapDict, State)
 	end,
@@ -1835,7 +1836,14 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State) ->
   RecType = t_limit(RecType0, ?TYPE_LIMIT),
   Map1 = enter_type(RecVar, RecType, dict:erase(t_var_name(Id), Map)),
   ?debug("\tMap in: ~p\n",[[{X, format_type(Y)}||{X, Y}<-dict:to_list(Map1)]]),
-  case solve_ref_or_list(Cs, Map1, MapDict, State) of
+  NewCs0 = remove_apply_constraints(Cs, Map1),
+  NewCs =
+    try mk_disj_norm_form(NewCs0) of
+      Cs0 -> Cs0
+    catch
+      throw:too_many_disj -> NewCs0
+    end,
+  case solve_ref_or_list(NewCs, Map1, MapDict, State) of
     {error, _} = Error ->
       case t_is_none(RecType0) of
 	true ->
@@ -1911,16 +1919,6 @@ solve_cs([#constraint{} = C|Tail], Map, MapDict, State) ->
     {ok, NewMap} ->
       solve_cs(Tail, NewMap, MapDict, State)
   end;
-solve_cs([#constraint_apply{} = C|Tail], Map, MapDict, State) ->
-  case solve_one_c(C, Map, State#state.opaques) of
-    error ->
-      ?debug("+++++++++++\nFailed Apply of ~w :: ~s\n+++++++++++\n",
-	     [C#constraint_apply.id,
-	      format_type(lookup_type(C#constraint_apply.id, Map))]),
-      {error, MapDict};
-    {ok, NewMap} ->
-      solve_cs(Tail, NewMap, MapDict, State)
-  end;
 solve_cs([], Map, MapDict, _State) ->
   {ok, MapDict, Map}.
 
@@ -1942,22 +1940,6 @@ solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
 	    error -> error;
 	    {ok, Map1} -> solve_subtype(Rhs, Inf, Map1, Opaques)
 	  end
-      end
-  end;
-solve_one_c(#constraint_apply{id = Id, args = Args, ret = Ret}, Map, Opaques) ->
-  Fun = lookup_type(Id, Map),
-  case t_is_any(Fun) of
-    true -> {ok, Map};
-    false ->
-      case t_is_none(Fun) of
-	true -> error;
-	false ->
-	  Fun2 = t_fun(Args, Ret),
-	  ?debug("Solving apply: ~s ~s\n",
-		 [format_type(Fun), format_type(Fun2)]),
-	  Inf = t_inf(Fun, Fun2, opaque),
-	  ?debug("Inf: ~s\n", [format_type(Inf)]),
-	  solve_subtype(Fun2, Inf, Map, Opaques)
       end
   end.
 
@@ -2557,6 +2539,7 @@ expand_to_conjunctions(#constraint_list{type = disj, list = List}) ->
   end.
 
 is_simple_constraint(#constraint{}) -> true;
+is_simple_constraint(#constraint_apply{}) -> true;
 is_simple_constraint(#constraint_ref{}) -> true;
 is_simple_constraint(#constraint_list{}) -> false.
 
@@ -2613,7 +2596,7 @@ enumerate_constraints([#constraint_list{type = conj, list = List} = C|Tail],
   %% Separate the flat constraints from the deep ones to make a
   %% separate fixpoint interation over the flat ones for speed.
   {Flat, Deep} = lists:splitwith(fun(#constraint{}) -> true;
-				    (#constraint_apply{}) -> true;
+				    (#constraint_apply{}) -> false;
 				    (#constraint_list{}) -> false;
 				    (#constraint_ref{}) -> false
 				 end, List),
