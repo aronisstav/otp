@@ -1684,6 +1684,9 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 %%
 %%=============================================================================
 
+-define(SCC_TRIES, 10).
+-define(SELF_RECURSIVE_TRIES, 22).
+
 solve([Fun], State) ->
   ?debug("============ Analyzing Fun: ~w ===========\n",
 	 [debug_lookup_name(Fun)]),
@@ -1691,14 +1694,15 @@ solve([Fun], State) ->
 solve([_|_] = SCC, State) ->
   ?debug("============ Analyzing SCC: ~w ===========\n",
 	 [[debug_lookup_name(F) || F <- SCC]]),
-  solve_scc(SCC, dict:new(), State, false).
+  solve_scc(SCC, dict:new(), State, false, ?SCC_TRIES).
 
 solve_fun(Fun, FunMap, State) ->
   Cs = state__get_cs(Fun, State),
   Deps = get_deps(Cs),
   Ref = mk_constraint_ref(Fun, Deps),
   %% Note that functions are always considered to succeed.
-  {ok, _MapDict, NewMap} = solve_ref_or_list(Ref, FunMap, dict:new(), State),
+  {ok, _MapDict, NewMap} =
+    solve_ref_or_list(Ref, FunMap, dict:new(), State, true),
   NewType = lookup_type(Fun, NewMap),
   NewFunMap1 = case state__get_rec_var(Fun, State) of
 		 error -> FunMap;
@@ -1706,7 +1710,7 @@ solve_fun(Fun, FunMap, State) ->
 	       end,
   enter_type(Fun, NewType, NewFunMap1).
 
-solve_scc(SCC, Map, State, TryingUnit) ->
+solve_scc(SCC, Map, State, TryingUnit, Countdown) ->
   State1 = state__mark_as_non_self_rec(SCC, State),
   Vars0 = [{Fun, state__get_rec_var(Fun, State)} || Fun <- SCC],
   Vars = [Var || {_, {ok, Var}} <- Vars0],
@@ -1718,7 +1722,7 @@ solve_scc(SCC, Map, State, TryingUnit) ->
 			 end, Map, SCC),
   Map1 = enter_type_lists(Vars, RecTypes, CleanMap),
   ?debug("Checking SCC: ~w\n", [[debug_lookup_name(F) || F <- SCC]]),
-  SolveFun = fun(X, Y) -> scc_fold_fun(X, Y, State1) end,
+  SolveFun = fun(X, Y) -> scc_fold_fun(X, Y, State1, Countdown > 0) end,
   Map2 = lists:foldl(SolveFun, Map1, SCC),
   FunSet = ordsets:from_list([t_var_name(F) || F <- SCC]),
   case maps_are_equal(Map2, Map, FunSet) of
@@ -1734,20 +1738,21 @@ solve_scc(SCC, Map, State, TryingUnit) ->
 	       true -> t_fun(t_fun_args(T), t_unit())
 	     end || T <- NewTypes],
 	  Map3 = enter_type_lists(Funs, UnitTypes, Map2),
-	  solve_scc(SCC, Map3, State, true);
+	  solve_scc(SCC, Map3, State, true, 0);
 	false ->
 	  Map2
       end;
     false ->
       ?debug("SCC ~w did not reach fixpoint\n", [SCC]),
-      solve_scc(SCC, Map2, State, TryingUnit)
+      solve_scc(SCC, Map2, State, TryingUnit, Countdown - 1)
   end.
 
-scc_fold_fun(F, FunMap, State) ->
+scc_fold_fun(F, FunMap, State, Expand) ->
   Deps = get_deps(state__get_cs(F, State)),
   Cs = mk_constraint_ref(F, Deps),
   %% Note that functions are always considered to succeed.
-  {ok, _NewMapDict, Map} = solve_ref_or_list(Cs, FunMap, dict:new(), State),
+  {ok, _NewMapDict, Map} =
+    solve_ref_or_list(Cs, FunMap, dict:new(), State, Expand),
   NewType0 = unsafe_lookup_type(F, Map),
   NewType = t_limit(NewType0, ?TYPE_LIMIT),
   NewFunMap = case state__get_rec_var(F, State) of
@@ -1761,7 +1766,7 @@ scc_fold_fun(F, FunMap, State) ->
   NewFunMap.
 
 solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
-		  Map, MapDict, State) ->
+		  Map, MapDict, State, Expand) ->
   {OldLocalMap, Check} =
     case dict:find(Id, MapDict) of
       error -> {dict:new(), false};
@@ -1779,12 +1784,19 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
       Res =
 	case state__is_self_rec(Id, State) of
 	  true ->
-	    solve_self_recursive(Cs, Map, MapDict, Id, t_none(), State, true);
+	    solve_self_recursive(Cs, Map, MapDict, Id, t_none(),
+				 State, ?SELF_RECURSIVE_TRIES);
 	  false ->
 	    CleanCs = remove_apply_constraints(Cs, Map),
-	    NormalCs = mk_disj_norm_form(CleanCs),
-	    FinalCs = re_enumerate(NormalCs),
-	    solve_ref_or_list(FinalCs, Map, MapDict, State)
+	    FinalCs =
+	      case Expand of
+		true ->
+		  NormalCs = mk_disj_norm_form(CleanCs),
+		  re_enumerate(NormalCs);
+		_ ->
+		  re_enumerate(CleanCs)
+	      end,
+	    solve_ref_or_list(FinalCs, Map, MapDict, State, Expand)
 	end,
       {NewMapDict, FunType} =
 	case Res of
@@ -1811,7 +1823,7 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
       {ok, dict:store(Id, NewMap2, NewMapDict), NewMap2}
   end;
 solve_ref_or_list(#constraint_list{type=Type, list = Cs, deps = Deps, id = Id},
-		  Map, MapDict, State) ->
+		  Map, MapDict, State, _Expand) ->
   {OldLocalMap, Check} =
     case dict:find(Id, MapDict) of
       error -> {dict:new(), false};
@@ -1827,31 +1839,31 @@ solve_ref_or_list(#constraint_list{type=Type, list = Cs, deps = Deps, id = Id},
       solve_clist(Cs, Type, Id, Deps, MapDict, Map, State)
   end.
 
-solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Expand) ->
+solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
   ?debug("Solving self recursive ~w\n", [debug_lookup_name(Id)]),
   {ok, RecVar} = state__get_rec_var(Id, State),
   ?debug("OldRecType ~s\n", [format_type(RecType0)]),
   RecType = t_limit(RecType0, ?TYPE_LIMIT),
   Map1 = enter_type(RecVar, RecType, dict:erase(t_var_name(Id), Map)),
   ?debug("\tMap in: ~p\n",[[{X, format_type(Y)}||{X, Y}<-dict:to_list(Map1)]]),
-  {FinalCs, NewExpand} =
-    case Expand of
+  CleanCs = remove_apply_constraints(Cs, Map1),
+  {FinalCs, NewCountdown} =
+    case Countdown > 0 of
       false ->
 	?debug("Not expanding\n",[]),
-	{Cs, false};
+	{CleanCs, Countdown};
       true ->
 	?debug("Expanding...",[]),
-	CleanCs = remove_apply_constraints(Cs, Map1),
 	case mk_disj_norm_form(CleanCs) of
 	  CleanCs ->
 	    ?debug("failed\n",[]),
-	    {re_enumerate(CleanCs), false};
+	    {re_enumerate(CleanCs), 0};
 	  NormalCs ->
 	    ?debug("ok\n",[]),
-	    {re_enumerate(NormalCs), true}
+	    {re_enumerate(NormalCs), Countdown-1}
 	end
     end,
-  case solve_ref_or_list(FinalCs, Map1, MapDict, State) of
+  case solve_ref_or_list(FinalCs, Map1, MapDict, State, indifferent) of
     {error, _} = Error ->
       case t_is_none(RecType0) of
 	true ->
@@ -1859,7 +1871,7 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Expand) ->
 	  Arity = state__fun_arity(Id, State),
 	  NewRecType = t_fun(lists:duplicate(Arity, t_any()), t_unit()),
 	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
-			       State, NewExpand);
+			       State, NewCountdown);
 	false ->
 	  Error
       end;
@@ -1874,14 +1886,8 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Expand) ->
 	  ?debug("-----\nSelf Recursive not fixpoint:\nOld:~s\nNew:~s\n-----\n",
 		    [erl_types:t_to_string(RecType0),
 		     erl_types:t_to_string(NewRecType)]),
-	  case NewExpand of
-	    true ->
-	      solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
-				   State, NewExpand);
-	    false ->
-	      solve_self_recursive(FinalCs, Map, MapDict, Id, NewRecType,
-				   State, NewExpand)
-	  end
+	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
+			       State, NewCountdown)
       end
   end.
 
@@ -1902,7 +1908,7 @@ solve_clist(Cs, conj, Id, Deps, MapDict, Map, State) ->
   end;
 solve_clist(Cs, disj, Id, _Deps, MapDict, Map, State) ->
   Fun = fun(C, Dict) ->
-	    case solve_ref_or_list(C, Map, Dict, State) of
+	    case solve_ref_or_list(C, Map, Dict, State, indifferent) of
 	      {ok, NewDict, NewMap} -> {{ok, NewMap}, NewDict};
 	      {error, _NewDict} = Error -> Error
 	    end
@@ -1916,12 +1922,12 @@ solve_clist(Cs, disj, Id, _Deps, MapDict, Map, State) ->
   end.
 
 solve_cs([#constraint_ref{} = C|Tail], Map, MapDict, State) ->
-  case solve_ref_or_list(C, Map, MapDict, State) of
+  case solve_ref_or_list(C, Map, MapDict, State, indifferent) of
     {ok, NewMapDict, Map1} -> solve_cs(Tail, Map1, NewMapDict, State);
     {error, _NewMapDict} = Error -> Error
   end;
 solve_cs([#constraint_list{} = C|Tail], Map, MapDict, State) ->
-  case solve_ref_or_list(C, Map, MapDict, State) of
+  case solve_ref_or_list(C, Map, MapDict, State, indifferent) of
     {ok, NewMapDict, Map1} -> solve_cs(Tail, Map1, NewMapDict, State);
     {error, _NewMapDict} = Error -> Error
   end;
