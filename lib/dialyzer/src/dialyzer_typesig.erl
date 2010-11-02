@@ -1777,16 +1777,13 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
       Cs = state__get_cs(Id, State),
       Res =
 	case state__is_self_rec(Id, State) of
-	  true -> solve_self_recursive(Cs, Map, MapDict, Id, t_none(), State);
+	  true ->
+	    solve_self_recursive(Cs, Map, MapDict, Id, t_none(), State, true);
 	  false ->
-	    NewCs0 = remove_apply_constraints(Cs, Map),
-	    NewCs =
-	      try mk_disj_norm_form(NewCs0) of
-		Cs0 -> Cs0
-	      catch
-		throw:too_many_disj -> NewCs0
-	      end,
-	    solve_ref_or_list(NewCs, Map, MapDict, State)
+	    CleanCs = remove_apply_constraints(Cs, Map),
+	    NormalCs = mk_disj_norm_form(CleanCs),
+	    FinalCs = re_enumerate(NormalCs),
+	    solve_ref_or_list(FinalCs, Map, MapDict, State)
 	end,
       {NewMapDict, FunType} =
 	case Res of
@@ -1829,28 +1826,39 @@ solve_ref_or_list(#constraint_list{type=Type, list = Cs, deps = Deps, id = Id},
       solve_clist(Cs, Type, Id, Deps, MapDict, Map, State)
   end.
 
-solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State) ->
+solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Expand) ->
   ?debug("Solving self recursive ~w\n", [debug_lookup_name(Id)]),
   {ok, RecVar} = state__get_rec_var(Id, State),
   ?debug("OldRecType ~s\n", [format_type(RecType0)]),
   RecType = t_limit(RecType0, ?TYPE_LIMIT),
   Map1 = enter_type(RecVar, RecType, dict:erase(t_var_name(Id), Map)),
   ?debug("\tMap in: ~p\n",[[{X, format_type(Y)}||{X, Y}<-dict:to_list(Map1)]]),
-  NewCs0 = remove_apply_constraints(Cs, Map1),
-  NewCs =
-    try mk_disj_norm_form(NewCs0) of
-      Cs0 -> Cs0
-    catch
-      throw:too_many_disj -> NewCs0
+  {FinalCs, NewExpand} =
+    case Expand of
+      false ->
+	?debug("Not expanding\n",[]),
+	{Cs, false};
+      true ->
+	?debug("Expanding...",[]),
+	CleanCs = remove_apply_constraints(Cs, Map1),
+	case mk_disj_norm_form(CleanCs) of
+	  CleanCs ->
+	    ?debug("failed\n",[]),
+	    {re_enumerate(CleanCs), false};
+	  NormalCs ->
+	    ?debug("ok\n",[]),
+	    {re_enumerate(NormalCs), true}
+	end
     end,
-  case solve_ref_or_list(NewCs, Map1, MapDict, State) of
+  case solve_ref_or_list(FinalCs, Map1, MapDict, State) of
     {error, _} = Error ->
       case t_is_none(RecType0) of
 	true ->
 	  %% Try again and assume that this is a non-terminating function.
 	  Arity = state__fun_arity(Id, State),
 	  NewRecType = t_fun(lists:duplicate(Arity, t_any()), t_unit()),
-	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType, State);
+	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
+			       State, NewExpand);
 	false ->
 	  Error
       end;
@@ -1862,7 +1870,17 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State) ->
 	true ->
 	  {ok, NewMapDict, enter_type(RecVar, NewRecType, NewMap)};
 	false ->
-	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType, State)
+	  ?debug("-----\nSelf Recursive not fixpoint:\nOld:~s\nNew:~s\n-----\n",
+		    [erl_types:t_to_string(RecType0),
+		     erl_types:t_to_string(NewRecType)]),
+	  case NewExpand of
+	    true ->
+	      solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
+				   State, NewExpand);
+	    false ->
+	      solve_self_recursive(FinalCs, Map, MapDict, Id, NewRecType,
+				   State, NewExpand)
+	  end
       end
   end.
 
@@ -1984,6 +2002,20 @@ remove_apply_constraints(#constraint_apply{id = Id, ret = Ret, args = Args},
       Intersections = erl_types:t_get_intersections(Type),
       intersect_into_disj(Intersections, Args, Ret)
   end.
+
+re_enumerate(#constraint_list{list = Cs} = C) ->
+  {NewCs, NewN} = re_enumerate(Cs, 0, []),
+  C#constraint_list{list = NewCs, id = NewN}.
+
+re_enumerate([], N, Acc) ->
+  {lists:reverse(Acc), N};
+re_enumerate([#constraint{} = C| Tail], N, Acc) ->
+  re_enumerate(Tail, N, [C| Acc]);
+re_enumerate([#constraint_ref{} = C| Tail], N, Acc) ->
+  re_enumerate(Tail, N, [C| Acc]);
+re_enumerate([#constraint_list{list = Cs} = C| Tail], N, Acc) ->
+  {NewCs, NewN} = re_enumerate(Cs, N, []),
+  re_enumerate(Tail, NewN+1, [C#constraint_list{list = NewCs, id = NewN}| Acc]).
 
 %% ============================================================================
 %%
