@@ -211,23 +211,24 @@ traverse(Tree, DefinedVars, State) ->
       Args = cerl:apply_args(Tree),
       Arity = length(Args),
       Op = cerl:apply_op(Tree),
+      TreeVar = mk_var(Tree),
       {State0, ArgTypes} = traverse_list(Args, DefinedVars, State),
       {State1, OpType} = traverse(Op, DefinedVars, State0),
       {State2, FunType} = state__get_fun_prototype(OpType, Arity, State1),
       State3 = state__store_conj(FunType, eq, OpType, State2),
-      State4 = state__store_conj(mk_var(Tree), sub, t_fun_range(FunType),
-				 State3),
-      State5 = state__store_conj_lists(ArgTypes, sub, t_fun_args(FunType),
-				       State4),
-      case state__lookup_apply(Tree, State) of
-	unknown ->
-	  {State5, mk_var(Tree)};
-	FunLabels ->
-	  case get_apply_constr(FunLabels, mk_var(Tree), ArgTypes, State5) of
-	    error -> {State5, mk_var(Tree)};
-	    {ok, State6} -> {State6, mk_var(Tree)}
-	  end
-      end;
+      State4 = state__store_conj(TreeVar, sub, t_fun_range(FunType), State3),
+      State5 =
+	state__store_conj_lists(ArgTypes, sub, t_fun_args(FunType), State4),
+      State7 =
+	case state__lookup_apply(Tree, State) of
+	  unknown -> State5;
+	  FunLabels ->
+	    case get_apply_constr(FunLabels, TreeVar, ArgTypes, State5) of
+	      error -> State5;
+	      {ok, State6} ->State6
+	    end
+	end,
+      {State7, TreeVar};
     binary ->
       {State1, SegTypes} = traverse_list(cerl:binary_segments(Tree),
 					 DefinedVars, State),
