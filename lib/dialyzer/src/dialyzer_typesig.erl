@@ -2512,28 +2512,27 @@ mk_disj_norm_form(#constraint_list{} = CL) ->
   end.
 
 expand_to_conjunctions(#constraint_list{type = conj, list = List}) ->
-  List1 = [C || C <- List, is_simple_constraint(C)],
-  List2 = [expand_to_conjunctions(C) || #constraint_list{} = C <- List],
-  case List2 =:= [] of
+  {List1, List2} = lists:partition(fun is_simple_constraint/1, List),
+  List3 = [expand_to_conjunctions(C) || C <- List2],
+  case List3 =:= [] of
     true -> [mk_conj_constraint_list(List1)];
     false ->
-      case List2 of
+      case List3 of
 	[JustOneList] ->
 	  [mk_conj_constraint_list([L|List1]) || L <- JustOneList];
 	_ ->
-	  combine_conj_lists(List2, List1)
+	  combine_conj_lists(List3, List1)
       end
   end;
 expand_to_conjunctions(#constraint_list{type = disj, list = List}) ->
   if length(List) > ?DISJ_NORM_FORM_LIMIT -> throw(too_many_disj);
      true -> ok
   end,
-  List1 = [C || C <- List, is_simple_constraint(C)],
+  {List1, List2} = lists:partition(fun is_simple_constraint/1, List),
   %% Just an assert.
   [] = [C || #constraint{} = C <- List1],
-  Expanded = lists:flatten([expand_to_conjunctions(C)
-			    || #constraint_list{} = C <- List]),
-  ReturnList = Expanded ++ List1,
+  Expanded = lists:flatten([expand_to_conjunctions(C) || C <- List2]),
+  ReturnList = List1 ++ Expanded,
   if length(ReturnList) > ?DISJ_NORM_FORM_LIMIT -> throw(too_many_disj);
      true -> ReturnList
   end.
