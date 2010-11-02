@@ -3518,7 +3518,7 @@ t_is_equal_function(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2) ->
     true ->
       Fold =
 	fun({Domain,_}, AccIn) ->
-	    ordsets:add_element(Domain, AccIn)
+	    add_elements(t_elements(Domain), AccIn)
 	end,
       Domains0 = lists:foldl(Fold, ordsets:new(), Clauses1),
       Domains = lists:foldl(Fold, Domains0, Clauses2),
@@ -3528,6 +3528,9 @@ t_is_equal_function(?function(Clauses1) = Fun1, ?function(Clauses2) = Fun2) ->
 	end,
       lists:all(Pred, Domains)
   end.
+
+add_elements(Elements, OrdSet) ->
+  lists:foldl(fun ordsets:add_element/2, OrdSet, Elements).
 
 t_is_equal_lists([], []) ->
   true;
