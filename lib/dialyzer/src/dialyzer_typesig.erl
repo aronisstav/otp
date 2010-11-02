@@ -1976,14 +1976,14 @@ remove_apply_constraints(#constraint_list{list = Cs} = C, FunMap) ->
   C#constraint_list{list = NewCs};
 remove_apply_constraints(#constraint_apply{id = Id, ret = Ret, args = Args},
 			 FunMap) ->
-  Type0 = lookup_type(Id, FunMap),
-  Type =
-    case (t_is_any(Type0) orelse t_is_none(Type0)) of
-      false -> Type0;
-      true -> t_fun(length(Args), t_any())
-    end,
-  Intersections = erl_types:t_get_intersections(Type),
-  intersect_into_disj(Intersections, Args, Ret).
+  Type = lookup_type(Id, FunMap),
+  case t_is_none(Type) of
+    true ->
+      mk_constraint(t_any(), eq, t_any());
+    false ->
+      Intersections = erl_types:t_get_intersections(Type),
+      intersect_into_disj(Intersections, Args, Ret)
+  end.
 
 %% ============================================================================
 %%
