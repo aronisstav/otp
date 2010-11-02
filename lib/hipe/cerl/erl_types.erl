@@ -2490,30 +2490,18 @@ t_elements(?union(List)) ->
   lists:append([t_elements(T) || T <- List]);
 t_elements(?product([]) = P) -> [P];
 t_elements(?product(List)) when is_list(List)->
-  [?product(ElemList) || ElemList <- power_product(List)];
+  [?product(ElemList) || ElemList <- product_elements(List)];
 t_elements(?var(_)) -> [?any].  %% yes, vars exist -- what else to do here?
 %% t_elements(T) ->
 %%   io:format("T_ELEMENTS => ~p\n", [T]).
 
-power_product(List) ->
-  power_product(List, [[]]).
+product_elements(List) ->
+  product_elements(List, [[]]).
 
-power_product([], Acc) ->
-  reverse_reversed(Acc, []);
-power_product([Type|Rest], AccLists) ->
-  List1 = t_elements(Type),
-  power_product(Rest, add_to_lists(List1, AccLists)).
-
-reverse_reversed([], Acc) ->
-  Acc;
-reverse_reversed([List|Rest], Acc) ->
-  reverse_reversed(Rest, [lists:reverse(List)| Acc]).
-
-add_to_lists(List1, Lists) ->
-  lists:append([add_to_list(List1, List2) || List2 <- Lists]).
-
-add_to_list(List1, List2) ->
-  [[Elem|List2] || Elem <- List1].
+product_elements([], ListOfLists) ->
+  [lists:reverse(L) || L <- ListOfLists];
+product_elements([Type| List], ListOfLists) ->
+  product_elements(List, [[T|L] || L <- ListOfLists, T <- t_elements(Type)]).
 
 %%-----------------------------------------------------------------------------
 %% Infimum
