@@ -1686,6 +1686,7 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 
 -define(SCC_TRIES, 10).
 -define(SCC_MAX_LENGTH, 30).
+-define(MAX_ARITY, 7).
 -define(SELF_RECURSIVE_TRIES, 22).
 
 solve([Fun], State) ->
@@ -1794,8 +1795,11 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
 				 State, ?SELF_RECURSIVE_TRIES);
 	  false ->
 	    {CleanCs, CleanState} = remove_apply_constraints(Cs, Map, State),
+	    ActualExpand =
+	      (Expand =:= true) andalso
+	      (state__fun_arity(Id, State) < ?MAX_ARITY),
 	    {FinalCs, FinalState} =
-	      case Expand of
+	      case ActualExpand of
 		true ->
 		  NormalCs = mk_disj_norm_form(CleanCs),
 		  re_enumerate(NormalCs, CleanState);
