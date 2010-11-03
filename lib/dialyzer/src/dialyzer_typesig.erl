@@ -1881,11 +1881,13 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
       NewRecType = unsafe_lookup_type(Id, NewMap),
       case t_is_equal(NewRecType, RecType0) of
 	true ->
+	  ?debug("-----\nSelf Recursive fixpoint:\nType:~s\n-----\n",
+		 [erl_types:t_to_string(NewRecType)]),
 	  {ok, NewMapDict, enter_type(RecVar, NewRecType, NewMap)};
 	false ->
-	  ?debug("-----\nSelf Recursive not fixpoint:\nOld:~s\nNew:~s\n-----\n",
-		    [erl_types:t_to_string(RecType0),
-		     erl_types:t_to_string(NewRecType)]),
+	  ?debug("-----\nSelf Recursive NOT fixpoint:\nOld:~s\nNew:~s\n-----\n",
+		 [erl_types:t_to_string(RecType0),
+		  erl_types:t_to_string(NewRecType)]),
 	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
 			       State, NewCountdown)
       end
@@ -2898,13 +2900,13 @@ pp_constraints([#constraint_apply{id = Id, ret = Ret, args = Args}],
 	       _Separator, Level, MaxDepth, _State) ->
   io:format("Apply ~w: (~w -> ~w)",
 	    [Id, lists:map(fun erl_types:t_to_string/1, Args),
-	     t_var_name(Ret)]),
+	     erl_types:t_to_string(Ret)]),
   erlang:max(Level, MaxDepth);
 pp_constraints([#constraint_apply{id = Id, ret = Ret, args = Args}|Tail],
 	       Separator, Level, MaxDepth, State) ->
   io:format("Apply ~w: (~w -> ~w) ~s ",
 	    [Id, lists:map(fun erl_types:t_var_name/1, Args),
-	     t_var_name(Ret), Separator]),
+	     erl_types:t_to_string(Ret), Separator]),
   pp_constraints(Tail, Separator, Level, MaxDepth, State);
 pp_constraints([#constraint_list{type = Type, list = List, id = Id}],
 	       _Separator, Level, MaxDepth, State) ->
