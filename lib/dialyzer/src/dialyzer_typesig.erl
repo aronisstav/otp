@@ -1871,7 +1871,7 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
 	  Arity = state__fun_arity(Id, State),
 	  NewRecType = t_fun(lists:duplicate(Arity, t_any()), t_unit()),
 	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
-			       State, NewCountdown);
+			       State, 0);
 	false ->
 	  Error
       end;
