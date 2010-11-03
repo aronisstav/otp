@@ -1793,16 +1793,16 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
 	    solve_self_recursive(Cs, Map, MapDict, Id, t_none(),
 				 State, ?SELF_RECURSIVE_TRIES);
 	  false ->
-	    CleanCs = remove_apply_constraints(Cs, Map),
-	    FinalCs =
+	    {CleanCs, CleanState} = remove_apply_constraints(Cs, Map, State),
+	    {FinalCs, FinalState} =
 	      case Expand of
 		true ->
 		  NormalCs = mk_disj_norm_form(CleanCs),
-		  re_enumerate(NormalCs);
-		_ ->
-		  re_enumerate(CleanCs)
+		  re_enumerate(NormalCs, CleanState);
+		false ->
+		  re_enumerate(CleanCs, CleanState)
 	      end,
-	    solve_ref_or_list(FinalCs, Map, MapDict, State, Expand)
+	    solve_ref_or_list(FinalCs, Map, MapDict, FinalState, Expand)
 	end,
       {NewMapDict, FunType} =
 	case Res of
@@ -1852,24 +1852,24 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
   RecType = t_limit(RecType0, ?TYPE_LIMIT),
   Map1 = enter_type(RecVar, RecType, dict:erase(t_var_name(Id), Map)),
   ?debug("\tMap in: ~p\n",[[{X, format_type(Y)}||{X, Y}<-dict:to_list(Map1)]]),
-  CleanCs = remove_apply_constraints(Cs, Map1),
-  {FinalCs, NewCountdown} =
+  {CleanCs, CleanState} = remove_apply_constraints(Cs, Map1, State),
+  {{FinalCs, FinalState}, NewCountdown} =
     case Countdown > 0 of
       false ->
 	?debug("Not expanding\n",[]),
-	{CleanCs, Countdown};
+	{re_enumerate(CleanCs, CleanState), Countdown};
       true ->
 	?debug("Expanding...",[]),
 	case mk_disj_norm_form(CleanCs) of
 	  CleanCs ->
 	    ?debug("failed\n",[]),
-	    {re_enumerate(CleanCs), 0};
+	    {re_enumerate(CleanCs, CleanState), 0};
 	  NormalCs ->
 	    ?debug("ok\n",[]),
-	    {re_enumerate(NormalCs), Countdown-1}
+	    {re_enumerate(NormalCs, CleanState), Countdown-1}
 	end
     end,
-  case solve_ref_or_list(FinalCs, Map1, MapDict, State, indifferent) of
+  case solve_ref_or_list(FinalCs, Map1, MapDict, FinalState, indifferent) of
     {error, _} = Error ->
       case t_is_none(RecType0) of
 	true ->
@@ -2000,37 +2000,56 @@ solve_subtype(Type, Inf, Map, Opaques) ->
 %%
 %% ============================================================================
 
-remove_apply_constraints(#constraint{} = C, _FunMap) ->
-  C;
-remove_apply_constraints(#constraint_ref{} = C, _FunMap) ->
-  C;
-remove_apply_constraints(#constraint_list{list = Cs} = C, FunMap) ->
-  NewCs = [remove_apply_constraints(C1, FunMap) || C1 <- Cs],
-  C#constraint_list{list = NewCs};
-remove_apply_constraints(#constraint_apply{id = Id, ret = Ret, args = Args},
-			 FunMap) ->
+remove_apply_constraints(C, FunMap, State) ->
+  {[NewC], NewState} = remove_apply_constraints([C], FunMap, State, []),
+  {NewC, NewState}.
+
+remove_apply_constraints([], _FunMap, State, Acc) ->
+  {lists:reverse(Acc), State};
+remove_apply_constraints([#constraint{} = C| Tail], FunMap, State, Acc) ->
+  remove_apply_constraints(Tail, FunMap, State, [C| Acc]);
+remove_apply_constraints([#constraint_ref{id = Id} = C| Tail],
+			 FunMap, State, Acc) ->
+  Cs = state__get_cs(Id, State),
+  {NewCs, NewState1} = remove_apply_constraints(Cs, FunMap, State),
+  NewState2 = state__store_constrs(Id, NewCs, NewState1),
+  remove_apply_constraints(Tail, FunMap, NewState2, [C| Acc]);
+remove_apply_constraints([#constraint_list{list = Cs} = C| Tail],
+			 FunMap, State, Acc) ->
+  {NewCs, NewState} = remove_apply_constraints(Cs, FunMap, State, []),
+  remove_apply_constraints(Tail, FunMap, NewState,
+			   [C#constraint_list{list = NewCs}| Acc]);
+remove_apply_constraints([#constraint_apply{id = Id, ret = Ret,
+					    args = Args}| Tail],
+			 FunMap, State, Acc) ->
   Type = lookup_type(Id, FunMap),
-  case t_is_none(Type) of
-    true ->
-      mk_constraint(t_any(), eq, t_any());
-    false ->
-      Intersections = erl_types:t_get_intersections(Type),
-      intersect_into_disj(Intersections, Args, Ret)
-  end.
+  NewC =
+    case t_is_none(Type) orelse t_is_any(Type) of
+      true ->
+	mk_constraint(t_any(), eq, t_any());
+      false ->
+	Intersections = erl_types:t_get_intersections(Type),
+	intersect_into_disj(Intersections, Args, Ret)
+    end,
+  remove_apply_constraints(Tail, FunMap, State, [NewC| Acc]).
 
-re_enumerate(#constraint_list{list = Cs} = C) ->
-  {NewCs, NewN} = re_enumerate(Cs, 0, []),
-  C#constraint_list{list = NewCs, id = NewN}.
+re_enumerate(#constraint_list{list = Cs} = C, State) ->
+  {NewCs, NewN, NewState} = re_enumerate(Cs, 0, [], State),
+  {C#constraint_list{list = NewCs, id = {list, NewN}}, NewState}.
 
-re_enumerate([], N, Acc) ->
-  {lists:reverse(Acc), N};
-re_enumerate([#constraint{} = C| Tail], N, Acc) ->
-  re_enumerate(Tail, N, [C| Acc]);
-re_enumerate([#constraint_ref{} = C| Tail], N, Acc) ->
-  re_enumerate(Tail, N, [C| Acc]);
-re_enumerate([#constraint_list{list = Cs} = C| Tail], N, Acc) ->
-  {NewCs, NewN} = re_enumerate(Cs, N, []),
-  re_enumerate(Tail, NewN+1, [C#constraint_list{list = NewCs, id = NewN}| Acc]).
+re_enumerate([], N, Acc, State) ->
+  {lists:reverse(Acc), N, State};
+re_enumerate([#constraint{} = C| Tail], N, Acc, State) ->
+  re_enumerate(Tail, N, [C| Acc], State);
+re_enumerate([#constraint_ref{id = Id} = C| Tail], N, Acc, State) ->
+  Cs = state__get_cs(Id, State),
+  {[NewCs], NewN, NewState1} = re_enumerate([Cs], N, [], State),
+  NewState2 = state__store_constrs(Id, NewCs, NewState1),
+  re_enumerate(Tail, NewN + 1, [C| Acc], NewState2);
+re_enumerate([#constraint_list{list = Cs} = C| Tail], N, Acc, State) ->
+  {NewCs, NewN, NewState} = re_enumerate(Cs, N, [], State),
+  NewAcc = [C#constraint_list{list = NewCs, id = {list, NewN}}| Acc],
+  re_enumerate(Tail, NewN + 1, NewAcc, NewState).
 
 %% ============================================================================
 %%
