@@ -2132,22 +2132,17 @@ prune_keys(Map1, Map2, Deps) ->
       Deps
   end.
 
-enter_type(Key, Val, Map) when is_integer(Key) ->
-  ?debug("Entering ~s :: ~s\n", [format_type(t_var(Key)), format_type(Val)], 3),
-  case t_is_any(Val) of
-    true ->
-      dict:erase(Key, Map);
-    false ->
-      LimitedVal = t_limit(Val, ?INTERNAL_TYPE_LIMIT),
-      case dict:find(Key, Map) of
-	{ok, LimitedVal} -> Map;
-	{ok, _} -> dict:store(Key, LimitedVal, Map);
-	error -> dict:store(Key, LimitedVal, Map)
-      end
-  end;
 enter_type(Key, Val, Map) ->
-  ?debug("Entering ~s :: ~s\n", [format_type(Key), format_type(Val)], 3),
-  KeyName = t_var_name(Key),
+  KeyName =
+    case is_integer(Key) of
+      true ->
+	?debug("Entering ~s :: ~s\n",
+	       [format_type(t_var(Key)), format_type(Val)], 3),
+	Key;
+      false ->
+	?debug("Entering ~s :: ~s\n", [format_type(Key), format_type(Val)], 3),
+	t_var_name(Key)
+    end,
   case t_is_any(Val) of
     true ->
       dict:erase(KeyName, Map);
