@@ -1685,6 +1685,7 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 %%=============================================================================
 
 -define(SCC_TRIES, 10).
+-define(SCC_MAX_LENGTH, 30).
 -define(SELF_RECURSIVE_TRIES, 22).
 
 solve([Fun], State) ->
@@ -1694,7 +1695,12 @@ solve([Fun], State) ->
 solve([_|_] = SCC, State) ->
   ?debug("============ Analyzing SCC: ~w ===========\n",
 	 [[debug_lookup_name(F) || F <- SCC]]),
-  solve_scc(SCC, dict:new(), State, false, ?SCC_TRIES).
+  Countdown =
+    case length(SCC) < ?SCC_MAX_LENGTH of
+      true  -> ?SCC_TRIES;
+      false -> 0
+    end,
+  solve_scc(SCC, dict:new(), State, false, Countdown).
 
 solve_fun(Fun, FunMap, State) ->
   Cs = state__get_cs(Fun, State),
