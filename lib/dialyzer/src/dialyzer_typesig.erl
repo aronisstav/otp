@@ -687,14 +687,10 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
 	none ->
 	  ?debug("No constraint\n",[], 3),
 	  State1;
-	{value, {'fun', PltType}} ->
+	{value, PltType} ->
 	  ?debug("Making intersectioned constraint: ~p\n",[MFA], 3),
 	  PLTIntersections = erl_types:t_get_intersections(PltType),
-	  state_store_intersections(PLTIntersections, ArgVars, Dst, State1);
-	{value, {PltRetType, PltArgTypes}} ->
-	  ?debug("Making plain constraint\n",[], 3),
-	  state__store_conj_lists([Dst|ArgVars], sub,
-				  [PltRetType|PltArgTypes], State1)
+	  state_store_intersections(PLTIntersections, ArgVars, Dst, State1)
       end
   end.
 
@@ -2280,7 +2276,7 @@ state__lookup_undef_var(Tree, #state{callgraph = CG, plt = Plt}) ->
     {ok, MFA} ->
       case dialyzer_plt:clean_lookup(Plt, MFA) of
 	none -> error;
-	{value, {'fun', Type}} -> {ok, Type}
+	{value, Type} -> {ok, Type}
       end
   end.
 

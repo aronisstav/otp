@@ -634,11 +634,11 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	{AnyArgs, t_any(), t_any()}; % effectively forgets the success typing
       false ->
 	case Sig of
-	  {value, {'fun', Type}} ->
+	  none ->
+	    {AnyArgs, t_any(), t_any()};
+	  {value, Type} ->
 	    {erl_types:t_fun_args(Type), erl_types:t_fun_range(Type, ArgTypes),
-	     erl_types:t_fun_range(Type)};
-	  {value, {SR, SA}} -> {SA, SR, SR};
-	  none -> {AnyArgs, t_any(), t_any()}
+	     erl_types:t_fun_range(Type)}
 	end
     end,
   ArgModeMask = [case lists:member(Arg, Opaques) of

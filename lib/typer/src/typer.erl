@@ -400,15 +400,11 @@ get_types(Module, Analysis, Records) ->
 convert_type_info({{_M, F, A}, Range, Arg}) ->
   {{F, A}, {Range, Arg}}.
 
-get_type({{M, F, A} = MFA, Range, Arg}, CodeServer, Records) ->
+get_type({{M, F, A} = MFA, Sig}, CodeServer, Records) ->
   case dialyzer_codeserver:lookup_mfa_contract(MFA, CodeServer) of
     error ->
-      {{F, A}, {Range, Arg}};
+      {{F, A}, Sig};
     {ok, {_FileLine, Contract}} ->
-      Sig = case Range of
-	      'fun' -> Arg;
-	      _ -> erl_types:t_fun(Arg, Range)
-	    end,
       case dialyzer_contracts:check_contract(Contract, Sig) of
 	ok -> {{F, A}, {contract, Contract}};
 	{error, {extra_range, _, _}} ->
@@ -539,10 +535,7 @@ get_type_string(F, A, Info, Mode) ->
     case Type of
       {contract, C} -> 
         dialyzer_contracts:contract_to_string(C);
-      {'fun', FunType} ->
-        dialyzer_utils:format_sig(FunType, Info#info.records);
-      {RetType, ArgType} ->
-	Sig = erl_types:t_fun(ArgType, RetType),
+      Sig ->
         dialyzer_utils:format_sig(Sig, Info#info.records)
     end,
   case Info#info.edoc of
@@ -577,7 +570,7 @@ get_type_info(Func, Types) ->
       Msg = io_lib:format("No type info for function: ~p\n", [Func]),
       fatal_error(Msg);
     {contract, _Fun} = C -> C;
-    {_RetType, _ArgType} = RA -> RA 
+    RA -> RA
   end.
 
 %%--------------------------------------------------------------------

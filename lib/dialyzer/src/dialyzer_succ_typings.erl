@@ -398,8 +398,7 @@ lookup_fun_type(Label, Arity, Callgraph, Plt) ->
   ID = lookup_name(Label, Callgraph),
   case dialyzer_plt:clean_lookup(Plt, ID) of
     none -> erl_types:t_fun(Arity, erl_types:t_any());
-    {value, {'fun', Type}} -> Type;
-    {value, {RetT, ArgT}} -> erl_types:t_fun(ArgT, RetT)
+    {value, Type} -> Type
   end.
 
 insert_into_doc_plt(_FunTypes, _Callgraph, undefined) ->
@@ -419,7 +418,7 @@ format_succ_types(SuccTypes, Callgraph) ->
 format_succ_types([{Label, Type0}|Left], Callgraph, Acc) ->
   Type = erl_types:t_limit(Type0, ?TYPE_LIMIT+1),
   Id = lookup_name(Label, Callgraph),
-  NewTuple = {Id, {'fun', Type}},
+  NewTuple = {Id, Type},
   format_succ_types(Left, Callgraph, [NewTuple|Acc]);
 format_succ_types([], _Callgraph, Acc) ->
   Acc.
@@ -429,7 +428,7 @@ debug_pp_succ_typings(SuccTypes) ->
   ?debug("Succ typings:\n", []),
   [?debug("  ~w :: ~s\n", 
 	  [MFA, erl_types:t_to_string(Type)])
-   || {MFA, {'fun', Type}} <- SuccTypes],
+   || {MFA, Type} <- SuccTypes],
   ?debug("Contracts:\n", []),
   [?debug("  ~w :: ~s\n", 
 	  [MFA, erl_types:t_to_string(erl_types:t_fun(ArgT, RetFun(ArgT)))])
@@ -504,7 +503,7 @@ get_top_level_signatures(Code, Records, Contracts) ->
 		    io:format("Contract for non-existing function: ~w\n",[C])
 		end, ErrorContracts),
   Types = [{MFA, dialyzer_plt:clean_lookup(Plt2, MFA)} || MFA <- Functions],
-  Sigs = [{{F, A}, Type} || {{_M, F, A}, {value, {'fun', Type}}} <- Types],
+  Sigs = [{{F, A}, Type} || {{_M, F, A}, {value, Type}} <- Types],
   ordsets:from_list(Sigs).
 
 get_def_plt() ->

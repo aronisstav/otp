@@ -457,7 +457,7 @@ get_invalid_contract_warnings_funs([{MFA, {FileLine, Contract}}|Left],
     none ->
       %% This must be a contract for a non-available function. Just accept it.
       get_invalid_contract_warnings_funs(Left, Plt, RecDict, Acc);
-    {value, {'fun', Sig}} ->
+    {value, Sig} ->
       NewAcc =
 	case check_contract(Contract, Sig) of
 	  {error, invalid_contract} ->

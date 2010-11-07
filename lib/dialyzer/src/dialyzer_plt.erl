@@ -166,7 +166,7 @@ lookup_callbacks(#plt{callbacks = Callbacks}, Mod) when is_atom(Mod) ->
 
 -type ret_args_types() :: {erl_types:erl_type(), [erl_types:erl_type()]}.
 
--type function_type() :: {'fun', erl_types:erl_type()}.
+-type function_type() :: erl_types:erl_type().
 
 -spec insert_list(plt(), [{mfa() | integer(),
 		  ret_args_types() | function_type()}]) -> plt().
@@ -180,13 +180,12 @@ insert_list(#plt{info = Info} = PLT, List) ->
 lookup(Plt, Key) ->
   case clean_lookup(Plt, Key) of
     none -> none;
-    {value, {'fun', Type}} ->
-      {value, {erl_types:t_fun_range(Type), erl_types:t_fun_args(Type)}};
-    Value -> Value
+    {value, Type} ->
+      {value, {erl_types:t_fun_range(Type), erl_types:t_fun_args(Type)}}
   end.
 
 -spec clean_lookup(plt(), integer() | mfa_patt()) ->
-        'none' | {'value', ret_args_types() | function_type()}.
+        'none' | {'value', function_type()}.
 
 clean_lookup(#plt{info = Info}, {M, F, _} = MFA) when is_atom(M), is_atom(F) ->
   table_lookup(Info, MFA);
@@ -213,7 +212,7 @@ get_types(#plt{types = Types}) ->
 get_exported_types(#plt{exported_types = ExpTypes}) ->
   ExpTypes.
 
--type mfa_types() :: {mfa(), erl_types:erl_type(), [erl_types:erl_type()]}.
+-type mfa_types() :: {mfa(), erl_types:erl_type()}.
 
 -spec lookup_module(plt(), atom()) -> 'none' | {'value', [mfa_types()]}.
 
@@ -548,12 +547,12 @@ create_specs(List = [{{M, _F, _A}, {_Ret, _Args}}| _], _M) ->
 create_specs([], _) ->
   [].
 
-create_spec(F, {'fun', Type}) ->
-  io_lib:format("-spec ~w~s.\n",
-		[F, dialyzer_utils:format_sig(Type)]);
 create_spec(F, {Ret, Args}) ->
   io_lib:format("-spec ~w~s.\n",
-		[F, dialyzer_utils:format_sig(erl_types:t_fun(Args, Ret))]).
+		[F, dialyzer_utils:format_sig(erl_types:t_fun(Args, Ret))]);
+create_spec(F, Type) ->
+  io_lib:format("-spec ~w~s.\n",
+		[F, dialyzer_utils:format_sig(Type)]).
 
 -spec plt_error(deep_string()) -> no_return().
 
@@ -590,10 +589,8 @@ table_insert_list(Plt, [{Key, Val}|Left]) ->
 table_insert_list(Plt, []) ->
   Plt.
 
-table_insert(Plt, Key, {_Ret, _Arg} = Obj) ->
-  dict:store(Key, Obj, Plt);
-table_insert(Plt, Key, #contract{} = C) ->
-  dict:store(Key, C, Plt).
+table_insert(Plt, Key, Obj) ->
+  dict:store(Key, Obj, Plt).
 
 table_lookup(Plt, Obj) ->
   case dict:find(Obj, Plt) of
@@ -602,13 +599,13 @@ table_lookup(Plt, Obj) ->
   end.
 
 table_lookup_module(Plt, Mod) ->
-  List = dict:fold(fun(Key, Val, Acc) ->
-		       case Key of
-			 {Mod, _F, _A} -> [{Key, element(1, Val),
-					    element(2, Val)}|Acc];
-			 _ -> Acc
-		       end
-		   end, [], Plt),
+  List =
+    dict:fold(fun(MFA, Type, Acc) ->
+		  case MFA of
+		    {Mod, _F, _A} -> [{MFA, Type}|Acc];
+		    _ -> Acc
+		  end
+	      end, [], Plt),
   case List =:= [] of
     true -> none;
     false -> {value, List}
