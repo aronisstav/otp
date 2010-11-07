@@ -187,9 +187,6 @@
 	 t_subtract_list/2,
 	 t_sup/1,
 	 t_sup/2,
-	 t_intersection/1,
-	 t_intersection/2,
-	 %% t_fun_combine/1,
 	 t_get_intersections/1,
 	 t_tid/0,
 	 t_timeout/0,
@@ -2000,22 +1997,6 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 -else.
 -define(idebug(_F,_A), ok).
 -endif.
-
-%% -spec t_fun_combine(erl_type()) -> erl_type().
-
-%% t_fun_combine(?function(Clauses)) ->
-%%   ?function(combine_clauses(Clauses)).
-
--spec t_intersection([erl_type()]) -> erl_type().
-
-t_intersection(Functions) ->
-  Clauses = [Clause || ?function(TClauses) <- Functions, Clause <- TClauses],
-  ?function(combine_clauses(Clauses)).
-
--spec t_intersection(erl_type(), erl_type()) -> erl_type().
-
-t_intersection(?function(Clauses1), ?function(Domain, Range)) ->
-  ?function(combine_clauses([{Domain, Range}|Clauses1])).
 
 combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
