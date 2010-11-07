@@ -2347,9 +2347,15 @@ t_sup(T1, T2) ->
   ?union(U2) = force_union(T2),
   sup_union(U1, U2).
 
+-define(MAX_ARITY, 19).
+
 check_arity([{?product(List), _}|_]) when is_list(List)->
-  length(List);
-check_arity(_) ->
+  Len = length(List),
+  case Len =< ?MAX_ARITY of
+    true -> Len;
+    false -> too_big
+  end;
+check_arity([{?any, _}|_]) ->
   undefined.
 
 -spec t_sup_lists([erl_type()], [erl_type()]) -> [erl_type()].
