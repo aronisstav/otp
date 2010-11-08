@@ -1998,12 +1998,18 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 -define(idebug(_F,_A), ok).
 -endif.
 
+-define(MAX_DOMAIN_COMPLEXITY, 100000).
+
 combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
 combine_clauses(Clauses) ->
   Clauses1 = combine_duplicate_doms(Clauses),
   Clauses2 = combine_same_ranges(Clauses1),
-  lists:sort(Clauses2).
+  try check_domain_complexity(Clauses2) of
+    ok -> lists:sort(Clauses2)
+  catch
+    throw:too_many -> [collapse_clauses(Clauses2)]
+  end.
 
 combine_duplicate_doms(Clauses) ->
   combine_duplicate_doms(Clauses, []).
@@ -2182,6 +2188,30 @@ safe_comb(Type1, Type2) ->
     false -> false
   end.
 
+-define(check_too_many(N, NormalResult),
+	case N < ?MAX_DOMAIN_COMPLEXITY of
+	  true -> NormalResult;
+	  false -> throw(too_many)
+	end).
+
+check_domain_complexity(Clauses) ->
+  check_domain_complexity(Clauses, 1).
+
+check_domain_complexity([], N) ->
+  ?check_too_many(N, ok);
+check_domain_complexity([{Domain, _Range}| Clauses], N) ->
+  ?check_too_many(N, check_domain_complexity(Clauses,
+					     N + count_elements(Domain))).
+
+count_elements(?any) -> 1;
+count_elements(?product(List)) ->
+  count_elements(List, 1).
+
+count_elements([], N) ->
+  ?check_too_many(N,N);
+count_elements([Type| Types], N) ->
+  ?check_too_many(N, count_elements(Types, length(t_elements(Type))*N)).
+
 collapse_clauses([Clause]) ->
   Clause;
 collapse_clauses(List) ->
@@ -2328,14 +2358,8 @@ t_sup(T1, T2) ->
   ?union(U2) = force_union(T2),
   sup_union(U1, U2).
 
--define(MAX_ARITY, 19).
-
 check_arity([{?product(List), _}|_]) when is_list(List)->
-  Len = length(List),
-  case Len =< ?MAX_ARITY of
-    true -> Len;
-    false -> too_big
-  end;
+  length(List);
 check_arity([{?any, _}|_]) ->
   undefined.
 
