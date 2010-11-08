@@ -2814,10 +2814,6 @@ inf_tuples_in_sets([?tuple(_, _, Tag1)|Ts1] = L1,
   if Tag1 < Tag2 -> inf_tuples_in_sets(Ts1, L2, Acc, Mode);
      Tag1 > Tag2 -> inf_tuples_in_sets(L1, Ts2, Acc, Mode)
   end;
-inf_tuples_in_sets([?tuple_set(_) = TS|Ts1], L2, Acc, Mode) ->
-  inf_tuples_in_sets(t_tuple_subtypes(TS) ++ Ts1, L2, Acc, Mode);
-inf_tuples_in_sets(L1, [?tuple_set(_) = TS|Ts2], Acc, Mode) ->
-  inf_tuples_in_sets(L1, t_tuple_subtypes(TS) ++ Ts2, Acc, Mode);
 inf_tuples_in_sets([], _, Acc, _Mode) -> lists:reverse(Acc);
 inf_tuples_in_sets(_, [], Acc, _Mode) -> lists:reverse(Acc).
 
