@@ -538,7 +538,7 @@ get_specs(#plt{info = Info}, M, F, A) when is_atom(M), is_atom(F) ->
 
 create_specs([{{M, F, _A}, Type}|Left], M) ->
   [create_spec(F, Type) | create_specs(Left, M)];
-create_specs(List = [{{M, _F, _A}, {_Ret, _Args}}| _], _M) ->
+create_specs(List = [{{M, _F, _A}, _Type}| _], _M) ->
   [io_lib:format("\n\n%% ------- Module: ~w -------\n\n", [M])
    | create_specs(List, M)];
 create_specs([], _) ->
