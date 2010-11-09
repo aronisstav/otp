@@ -166,10 +166,7 @@ lookup_callbacks(#plt{callbacks = Callbacks}, Mod) when is_atom(Mod) ->
 
 -type ret_args_types() :: {erl_types:erl_type(), [erl_types:erl_type()]}.
 
--type function_type() :: erl_types:erl_type().
-
--spec insert_list(plt(), [{mfa() | integer(),
-		  ret_args_types() | function_type()}]) -> plt().
+-spec insert_list(plt(), [{mfa() | integer(), erl_types:erl_type()}]) -> plt().
 
 insert_list(#plt{info = Info} = PLT, List) ->
   PLT#plt{info = table_insert_list(Info, List)}.
@@ -185,7 +182,7 @@ lookup(Plt, Key) ->
   end.
 
 -spec clean_lookup(plt(), integer() | mfa_patt()) ->
-        'none' | {'value', function_type()}.
+        'none' | {'value', erl_types:erl_type()}.
 
 clean_lookup(#plt{info = Info}, {M, F, _} = MFA) when is_atom(M), is_atom(F) ->
   table_lookup(Info, MFA);
