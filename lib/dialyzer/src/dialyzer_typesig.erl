@@ -2570,7 +2570,7 @@ update_constraint_list(CL, List) ->
 %% Note that by not expanding we lose some precision, but we get a
 %% safe over approximation.
 
--define(DISJ_NORM_FORM_LIMIT, 42).
+-define(DISJ_NORM_FORM_LIMIT, 50).
 
 mk_disj_norm_form(#constraint_list{} = CL) ->
   try
