@@ -472,7 +472,6 @@ message_to_string({callback_info_missing, [B]}) ->
 
 call_or_apply_to_string(ArgNs, FailReason, SigArgs, SigRet,
 			{IsOverloaded, Contract}) ->
-  PositionString = form_position_string(ArgNs),
   case FailReason of
     only_sig ->
       case ArgNs =:= [] of
@@ -481,6 +480,7 @@ call_or_apply_to_string(ArgNs, FailReason, SigArgs, SigRet,
 	  io_lib:format("will never return since the success typing arguments"
 			" are ~s\n", [SigArgs]);
         false ->
+	  PositionString = form_position_string(ArgNs, "and/or"),
 	  io_lib:format("will never return since it differs in the ~s argument"
 			" from the success typing arguments: ~s\n",
 			[PositionString, SigArgs])
@@ -491,6 +491,7 @@ call_or_apply_to_string(ArgNs, FailReason, SigArgs, SigRet,
 	  %% We do not know which arguments caused the failure
 	  io_lib:format("breaks the contract ~s\n", [Contract]);
 	false ->
+	  PositionString = form_position_string(ArgNs),
 	  io_lib:format("breaks the contract ~s in the ~s argument\n",
 			[Contract, PositionString])
       end;
@@ -534,6 +535,9 @@ form_expected(ExpectedArgs) ->
   end.
 
 form_position_string(ArgNs) ->
+  form_position_string(ArgNs, "and").
+
+form_position_string(ArgNs, Keyword) ->
   case ArgNs of
     [] -> "";
     [N1] -> ordinal(N1);
@@ -541,7 +545,7 @@ form_position_string(ArgNs) ->
       [Last|Prevs] = lists:reverse(ArgNs),
       ", " ++ Head = lists:flatten([io_lib:format(", ~s",[ordinal(N)]) ||
 				     N <- lists:reverse(Prevs)]),
-      Head ++ " and " ++ ordinal(Last)
+      Head ++ " " ++ Keyword ++ " " ++ ordinal(Last)
   end.
 
 ordinal(1) -> "1st";

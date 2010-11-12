@@ -91,7 +91,8 @@
 	 t_fun_args/1,
 	 t_fun_arity/1,
 	 t_fun_range/1,
-	 t_fun_range/2,
+	 t_fun_apply_sig/2,
+	 t_fun_clean_args/1,
 	 t_has_opaque_subtype/1,
 	 t_has_var/1,
 	 t_identifier/0,
@@ -1086,7 +1087,35 @@ t_fun_range(?function(List)) ->
   Fun = fun({_, Range}, TypeAcc) -> t_sup(Range, TypeAcc) end,
   lists:foldl(Fun, ?none, List).
 
--spec t_fun_range(erl_type(), erl_type() | [erl_type()]) -> erl_type().
+
+
+-spec t_fun_apply_sig(erl_type(), [erl_type()]) ->
+			 {erl_type(), erl_type(), erl_type()}.
+
+t_fun_apply_sig(?function(Clauses), ArgTypes) ->
+  InitADomain = ?product([?none || _ <- ArgTypes]),
+  t_fun_apply_sig(Clauses, ?product(ArgTypes), InitADomain, ?none, ?none).
+
+t_fun_apply_sig([], _ArgTypes, ?product(ADomainEls), ARange, TRange)->
+  {ADomainEls, ARange, TRange};
+t_fun_apply_sig([{Domain, Range}| Clauses], ArgTypes,
+		ADomain, ARange, TRange) ->
+  NewTRange = t_sup(TRange, Range),
+  case overlap(Domain, ArgTypes, opaque) of
+    false ->
+      t_fun_apply_sig(Clauses, ArgTypes, ADomain, ARange, NewTRange);
+    true ->
+      NewADomain = t_sup(ADomain, Domain),
+      NewARange = t_sup(ARange, Range),
+      t_fun_apply_sig(Clauses, ArgTypes, NewADomain, NewARange, NewTRange)
+  end.
+
+-spec t_fun_clean_args(erl_type()) -> erl_type() | [[erl_type()]].
+
+t_fun_clean_args(?function({?any,_})) ->
+  ?any;
+t_fun_clean_args(?function(Clauses)) ->
+  [Args || {?product(Args), _Range} <- Clauses].
 
 t_fun_range(Fun, ArgTypes) ->
   t_fun_range(Fun, ArgTypes, opaque).
@@ -1094,9 +1123,7 @@ t_fun_range(Fun, ArgTypes) ->
 t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes, Mode) ->
   find_range(Fun, ArgTypes, Mode);
 t_fun_range(?function(_)=Fun, ?any, _Mode) ->
-  t_fun_range(Fun);
-t_fun_range(?function(_) = Fun, ArgTypes, Mode) ->
-  t_fun_range(Fun, ?product(ArgTypes), Mode).
+  t_fun_range(Fun).
 
 find_range(?function(List), ArgTypes, Mode) ->
   find_range_1(ArgTypes, List, Mode, ?none).

@@ -637,8 +637,7 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	  none ->
 	    {AnyArgs, t_any(), t_any()};
 	  {value, Type} ->
-	    {erl_types:t_fun_args(Type), erl_types:t_fun_range(Type, ArgTypes),
-	     erl_types:t_fun_range(Type)}
+	    erl_types:t_fun_apply_sig(Type, ArgTypes)
 	end
     end,
   ArgModeMask = [case lists:member(Arg, Opaques) of
@@ -732,8 +731,12 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	    FailedContract =
 	      any_none([CRange(TmpArgsContract)|NewArgsContract]),
 	    FailedBif = any_none([BifRange(NewArgsBif)|NewArgsBif]),
-	    InfSig = t_inf(t_fun(SigArgs, SigRange),
-			   t_fun(BifArgs, BifRange(BifArgs))),
+	    SuccessSig =
+	      case Sig of
+		none -> t_fun(SigArgs, SigRange);
+		{value, Type1} -> Type1
+	      end,
+	    InfSig = t_inf(SuccessSig, t_fun(BifArgs, BifRange(BifArgs))),
 	    FailReason =
 	      apply_fail_reason(FailedSig, FailedBif, FailedContract),
 	    Msg = get_apply_fail_msg(Fun, Args, ArgTypes, NewArgTypes, InfSig,
@@ -746,7 +749,7 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 			 {opaque_type_test, _} -> ?WARN_OPAQUE
 		       end,
 	    state__add_warning(State1, WarnType, Tree, Msg)
-	end;
+	  end;
       false -> State1
     end,
   State3 =
@@ -831,7 +834,7 @@ get_apply_fail_msg(Fun, Args, ArgTypes, NewArgTypes,
 		  {call_without_opaque, [M, F, ArgStrings, ExpectedTriples]};
 		false -> %% there is a structured term clash in some argument
 		  {call, [M, F, ArgStrings,
-			  ArgNs, FailReason,
+			  find_failing_args(Sig, ArgTypes), FailReason,
 			  format_sig_args(Sig, State),
 			  format_type(t_fun_range(Sig), State),
 			  ContractInfo]}
@@ -844,6 +847,27 @@ get_apply_fail_msg(Fun, Args, ArgTypes, NewArgTypes,
 	       format_sig_args(Sig, State),
 	       format_type(t_fun_range(Sig), State),
 	       ContractInfo]}
+  end.
+
+find_failing_args(Sig, ArgTypes) ->
+  SuccArgTypes = erl_types:t_fun_clean_args(Sig),
+  Fold =
+    fun(SuccArgType, Set) ->
+	ordsets:union(Set, args_difference(ArgTypes, SuccArgType))
+    end,
+  lists:foldl(Fold, ordsets:new(), SuccArgTypes).
+
+args_difference(ArgTypes, SuccArgTypes) ->
+  args_difference(ArgTypes, SuccArgTypes, 1, []).
+
+args_difference([], [], _N, Acc) ->
+  lists:reverse(Acc);
+args_difference([T1| R1], [T2| R2], N, Acc) ->
+  case t_is_subtype(T1, T2) of
+    true ->
+      args_difference(R1, R2, N+1, [N| Acc]);
+    false ->
+      args_difference(R1, R2, N+1, Acc)
   end.
 
 %% returns 'true' if we are running with opaque on (not checked yet),
@@ -3457,12 +3481,17 @@ format_field_diffs(RecConstruction, #state{records = R}) ->
 -spec format_sig_args(erl_types:erl_type(), state()) -> string().
 
 format_sig_args(Type, #state{records = R}) ->
-  SigArgs = t_fun_args(Type),
+  SigArgs = erl_types:t_fun_clean_args(Type),
   case SigArgs of
-    [] -> "()";
-    [SArg|SArgs] ->
-      lists:flatten("(" ++ t_to_string(SArg, R)
-		        ++ ["," ++ t_to_string(T, R) || T <- SArgs] ++ ")")
+    [[]] -> "()";
+    ArgList ->
+      Map =
+	fun(Arg) ->
+	    "(" ++
+	      string:join([t_to_string(ArgEl, R) || ArgEl <- Arg], ",") ++
+	      ")"
+	end,
+      string:join(lists:map(Map, ArgList), " or ")
     end.
 
 format_cerl(Tree) ->
