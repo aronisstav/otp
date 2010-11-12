@@ -2083,7 +2083,7 @@ join_one_key(Key, [Map|Maps], Type) ->
     true -> Type;
     false ->
       NewType = lookup_type(Key, Map),
-      case t_is_equal(NewType, Type) of
+      case not t_is_fun(Type) andalso t_is_equal(NewType, Type) of
 	true  -> join_one_key(Key, Maps, Type);
 	false -> join_one_key(Key, Maps, t_sup(NewType, Type))
       end
