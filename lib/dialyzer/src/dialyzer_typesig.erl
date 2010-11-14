@@ -826,7 +826,7 @@ handle_clauses_1([Clause|Tail], TopVar, Arg, DefinedVars,
 		       State, NewSubtrTypes, Acc)
   end;
 handle_clauses_1([], _TopVar, _Arg, _DefinedVars, State, _SubtrType, Acc) ->
-  {state__new_constraint_context(State), lists:reverse(Acc)}.
+  {state__new_constraint_context(State), Acc}.
 
 -spec get_safe_underapprox([cerl:c_values()], cerl:cerl()) -> erl_types:erl_type().
 
@@ -2524,14 +2524,14 @@ mk_constraint_ref(Id, Deps) ->
   #constraint_ref{id = Id, deps = Deps}.
 
 mk_constraint_list(Type, List) ->
-  List1 = lift_lists(Type, List),
-  %% List2 = ordsets:filter(fun(X) -> get_deps(X) =/= [] end, List1),
-  Deps = calculate_deps(List1),
+  List1 = ordsets:from_list(lift_lists(Type, List)),
+  List2 = ordsets:filter(fun(X) -> get_deps(X) =/= [] end, List1),
+  Deps = calculate_deps(List2),
   case Deps =:= [] of
     true -> #constraint_list{type = conj,
 			     list = [mk_constraint(t_any(), eq, t_any())],
 			     deps = []};
-    false -> #constraint_list{type = Type, list = List1, deps = Deps}
+    false -> #constraint_list{type = Type, list = List2, deps = Deps}
   end.
 
 lift_lists(Type, List) ->
@@ -2542,7 +2542,7 @@ lift_lists(Type, [#constraint_list{type = Type, list = List}|Tail], Acc) ->
 lift_lists(Type, [C|Tail], Acc) ->
   lift_lists(Type, Tail, [C|Acc]);
 lift_lists(_Type, [], Acc) ->
-  lists:reverse(Acc).
+  Acc.
 
 update_constraint_list(CL, List) ->
   CL#constraint_list{list = List}.
@@ -2601,7 +2601,7 @@ expand_to_conjunctions(#constraint_list{type = disj, list = List}) ->
   %% Just an assert.
   [] = [C || #constraint{} = C <- List1],
   Expanded = lists:flatten([expand_to_conjunctions(C) || C <- List2]),
-  ReturnList = List1 ++ Expanded,
+  ReturnList = Expanded ++ List1,
   if length(ReturnList) > ?DISJ_NORM_FORM_LIMIT -> throw(too_many_disj);
      true -> ReturnList
   end.
