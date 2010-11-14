@@ -863,7 +863,15 @@ args_difference(ArgTypes, SuccArgTypes) ->
 args_difference([], [], _N, Acc) ->
   lists:reverse(Acc);
 args_difference([T1| R1], [T2| R2], N, Acc) ->
-  case t_is_subtype(T1, T2) of
+  Inf = t_inf(T1, T2),
+  Fail =
+    case erl_types:t_is_fun(Inf) of
+      true ->
+	t_is_none(t_fun_range(Inf));
+      false ->
+	t_is_none(Inf)
+    end,
+  case Fail of
     true ->
       args_difference(R1, R2, N+1, [N| Acc]);
     false ->
