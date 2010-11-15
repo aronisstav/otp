@@ -668,31 +668,31 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
       false -> dialyzer_plt:lookup_contract(Plt, MFA)
     end,
   State1 =
+    case state__lookup_rec_var_in_scope(MFA, State) of
+      error ->
+	State;
+      {ok, Var} ->
+	?debug("Making apply constraint for ~p (~p)\n",
+	       [MFA, cerl_trees:get_label(Var)], 3),
+	state__store_conj_apply(cerl_trees:get_label(Var), Dst, ArgVars, State)
+    end,
+  State2 =
     case Contract of
       none ->
-	State;
+	State1;
       {value, C} ->
 	CIntersections = dialyzer_contracts:get_intersections(C),
-	state_store_intersections(CIntersections, ArgVars, Dst, State)
+	state_store_intersections(CIntersections, ArgVars, Dst, State1)
     end,
-  case state__lookup_rec_var_in_scope(MFA, State) of
-    {ok, Var} ->
-      ?debug("Making apply constraint for ~p (~p)\n",
-	     [MFA, cerl_trees:get_label(Var)], 3),
-      state__store_conj_apply(cerl_trees:get_label(Var), Dst, ArgVars, State1);
-    error ->
-      ?debug("Looking ~p in plt\n",[MFA], 3),
-      PltCleanRes = dialyzer_plt:clean_lookup(Plt, MFA),
-      case PltCleanRes of
-	none ->
-	  ?debug("No constraint\n",[], 3),
-	  State1;
-	{value, PltType} ->
-	  ?debug("Making intersectioned constraint: ~p\n",[MFA], 3),
-	  PLTIntersections = erl_types:t_get_intersections(PltType),
-	  state_store_intersections(PLTIntersections, ArgVars, Dst, State1)
-      end
+  case dialyzer_plt:clean_lookup(Plt, MFA) of
+    none ->
+      State2;
+    {value, PltType} ->
+      ?debug("Making intersectioned constraint: ~p\n",[MFA], 1),
+      PLTIntersections = erl_types:t_get_intersections(PltType),
+      state_store_intersections(PLTIntersections, ArgVars, Dst, State2)
   end.
+
 
 state__store_conj_apply(Var, Dst, ArgVars, State) ->
   state__store_conj(mk_constraint_apply(Var, Dst, ArgVars), State).
