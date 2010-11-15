@@ -1117,27 +1117,6 @@ t_fun_clean_args(?function({?any,_})) ->
 t_fun_clean_args(?function(Clauses)) ->
   [Args || {?product(Args), _Range} <- Clauses].
 
-t_fun_range(Fun, ArgTypes) ->
-  t_fun_range(Fun, ArgTypes, opaque).
-
-t_fun_range(?function(_)=Fun, ?product(_) = ArgTypes, Mode) ->
-  find_range(Fun, ArgTypes, Mode);
-t_fun_range(?function(_)=Fun, ?any, _Mode) ->
-  t_fun_range(Fun).
-
-find_range(?function(List), ArgTypes, Mode) ->
-  find_range_1(ArgTypes, List, Mode, ?none).
-
-find_range_1(_Domain, [], _Mode, AccRange) ->
-  AccRange;
-find_range_1(Domain, [{DomainA, Range}|Rest], Mode, AccRange) ->
-  case overlap(Domain, DomainA, Mode) of
-    false ->
-      find_range_1(Domain, Rest, Mode, AccRange);
-    true ->
-      find_range_1(Domain, Rest, Mode, t_sup(Range, AccRange))
-  end.
-
 overlap(?any, _, _) ->
   true;
 overlap(_, ?any, _) ->
