@@ -2138,8 +2138,10 @@ combinable([Type1| Rest1], [Type2| Rest2], Acc, N) ->
 
 safe_comb(Type1, Type2) ->
   Sup = t_sup(Type1, Type2),
-  case (t_is_equal(Type1, t_subtract(Sup, Type2)) andalso
-	t_is_equal(Type2, t_subtract(Sup, Type1))) of
+  Inf = t_inf(Type1, Type2),
+  S1 = t_sup(t_subtract(Sup, Type2), Inf),
+  S2 = t_sup(t_subtract(Sup, Type1), Inf),
+  case (t_is_equal(Type1, S1) andalso t_is_equal(Type2, S2)) of
     true  -> {true, Sup};
     false -> false
   end.
