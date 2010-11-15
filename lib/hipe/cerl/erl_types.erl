@@ -612,7 +612,7 @@ t_opaque_tuple_tags(OpaqueStruct) ->
 t_struct_from_opaque(?function(List), Opaques) ->
   NewList = [{t_struct_from_opaque(Domain, Opaques),
 	      t_struct_from_opaque(Range, Opaques)} || {Domain, Range} <- List],
-  ?function(NewList);
+  ?function(combine_clauses(NewList));
 t_struct_from_opaque(?list(Types, Term, Size), Opaques) ->
   ?list(t_struct_from_opaque(Types, Opaques), Term, Size);
 t_struct_from_opaque(?opaque(_) = T, Opaques) ->
@@ -682,7 +682,7 @@ t_solve_remote(?function(List), ET, R, C) ->
 	     {[{RT1, RT2} |InList], RR1 ++ RR2 ++ InRR}
 	 end,
   {OutList, OutRR} = lists:foldl(Fold, {[],[]}, List),
-  {?function(lists:reverse(OutList)), OutRR};
+  {?function(combine_clauses(lists:reverse(OutList))), OutRR};
 t_solve_remote(?list(Types, Term, Size), ET, R, C) ->
   {RT, RR} = t_solve_remote(Types, ET, R, C),
   {?list(RT, Term, Size), RR};
@@ -3667,8 +3667,8 @@ t_limit_k(?list(Elements, Termination, Size), K) ->
   end;
 t_limit_k(?function(List), K) ->
   %% The domain is either a product or any() so we do not decrease the K.
-  ?function([{t_limit_k(Domain, K), t_limit_k(Range, K-1)} ||
-	      {Domain, Range} <- List]);
+  ?function(combine_clauses([{t_limit_k(Domain, K), t_limit_k(Range, K-1)} ||
+	      {Domain, Range} <- List]));
 t_limit_k(?product(Elements), K) ->
   ?product([t_limit_k(X, K - 1) || X <- Elements]);
 t_limit_k(?union(Elements), K) ->
