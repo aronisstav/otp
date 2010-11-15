@@ -2077,7 +2077,18 @@ combine_same_range([{DomainA, RangeA} = Clause| Rest], Domain, Range,
   Combinable =
     case t_is_equal(RangeA, Range) of
       true ->
-	combinable(DomainA, Domain);
+	case combinable(DomainA, Domain) of
+	  false ->
+	    case t_is_subtype(DomainA, Domain) of
+	      true  -> {true, Domain};
+	      false ->
+		case t_is_subtype(Domain, DomainA) of
+		  true -> terminate;
+		  false -> false
+		end
+	    end;
+	  True -> True
+	end;
       false ->
 	case t_is_subtype(Range, RangeA) of
 	  true ->
@@ -2106,82 +2117,22 @@ combine_same_range([{DomainA, RangeA} = Clause| Rest], Domain, Range,
   end.
 
 combinable(?product(List1)=_P1, ?product(List2)=_P2) ->
-  combinable(List1, List2, [], true, true, true, true, 0).
+  combinable(List1, List2, [], 0).
 
-combinable(_List1, _List2, _NewList, false, false, false, false, N)
-  when N > 1 ->
+combinable(_, _, _, 2) ->
   false;
-combinable([], [], NewList, _IsAny1, _IsAny2, _IsSub12, _IsSub21, _Difs) ->
-  {true, ?product(lists:reverse(NewList))};
-combinable([Type1| List1], [Type2| List2], NewList,
-	     IsAny1, IsAny2, IsSub12, IsSub21, Difs) ->
-  case {Type1, Type2} of
-    {?any, ?any} ->
-      combinable(List1, List2, [?any| NewList],
-		   IsAny1, IsAny2, IsSub12, IsSub21, Difs);
-    {?any, _} ->
-      combinable(List1, List2, [?any| NewList],
-		 IsAny1, false, false, IsSub21, Difs + 1);
-    {_, ?any} ->
-      combinable(List1, List2, [?any| NewList],
-		 false, IsAny2, IsSub12, false, Difs + 1);
-    {_, _} ->
-      case t_is_equal(Type1, Type2) of
-	true ->
-	  combinable(List1, List2, [Type1| NewList],
-		     false, false, IsSub12, IsSub21, Difs);
+combinable([], [], Acc, _) ->
+  {true, ?product(lists:reverse(Acc))};
+combinable([Type1| Rest1], [Type2| Rest2], Acc, N) ->
+  case t_is_equal(Type1, Type2) of
+    true ->
+      combinable(Rest1, Rest2, [Type1| Acc], N);
+    false ->
+      case safe_comb(Type1, Type2) of
+	{true, Sup} ->
+	  combinable(Rest1, Rest2, [Sup| Acc], N+1);
 	false ->
-	  case {IsSub12, IsSub21} of
-	    {true, true} ->
-	      case {t_is_subtype(Type1, Type2), t_is_subtype(Type2, Type1)} of
-		{true, false} ->
-		  combinable(List1, List2, [Type2| NewList],
-			     false, false, true, false, Difs + 1);
-		{false, true} ->
-		  combinable(List1, List2, [Type1| NewList],
-			     false, false, false, true, Difs + 1);
-		{false, false} ->
-		  case safe_comb(Type1, Type2) of
-		    {true, Type} ->
-		      combinable(List1, List2, [Type| NewList],
-				 false, false, false, false, Difs + 1);
-		    false -> false
-		  end
-	      end;
-	    {true, false} ->
-	      case t_is_subtype(Type1, Type2) of
-		true ->
-		  combinable(List1, List2, [Type2| NewList],
-			     false, false, true, false, Difs + 1);
-		false ->
-		  case safe_comb(Type1, Type2) of
-		    {true, Type} ->
-		      combinable(List1, List2, [Type| NewList],
-				 false, false, false, false, Difs + 1);
-		    false -> false
-		  end
-	      end;
-	    {false, true} ->
-	      case t_is_subtype(Type2, Type1) of
-		true ->
-		  combinable(List1, List2, [Type1| NewList],
-			     false, false, false, true, Difs + 1);
-		false ->
-		  case safe_comb(Type1, Type2) of
-		    {true, Type} ->
-		      combinable(List1, List2, [Type| NewList],
-				 false, false, false, false, Difs + 1);
-		    false -> false
-		  end
-	      end;
-	    {false, false} ->
-	      case safe_comb(Type1, Type2) of
-		{true, Type} ->
-		  combinable(List1, List2, [Type| NewList],
-			     false, false, false, false, Difs + 1);
-		false -> false
-	      end
-	  end
+	  false
       end
   end.
 
