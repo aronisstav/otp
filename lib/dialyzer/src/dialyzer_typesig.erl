@@ -714,7 +714,12 @@ intersect_into_conj([{ArgTypes, RetType}|Rest], ArgVars, Dst, Acc) ->
   try mk_constraints([Dst|ArgVars], sub, [RetType|ArgTypes]) of
     Constr ->
       NewConj = mk_constraint_list(conj, Constr),
-      intersect_into_conj(Rest, ArgVars, Dst, [NewConj| Acc])
+      FinalConj =
+	case NewConj#constraint_list.deps of
+	  [] -> NewConj#constraint_list{deps = [t_var_name(Dst)]};
+	  _  -> NewConj
+	end,
+      intersect_into_conj(Rest, ArgVars, Dst, [FinalConj| Acc])
   catch
     _:_ ->
       intersect_into_conj(Rest, ArgVars, Dst, Acc)
