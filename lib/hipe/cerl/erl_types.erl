@@ -2009,12 +2009,28 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
 combine_clauses(Clauses) ->
-  Clauses1 = combine_duplicate_doms(Clauses),
-  Clauses2 = combine_same_ranges(Clauses1),
-  try check_domain_complexity(Clauses2) of
-    ok -> lists:sort(Clauses2)
+  Clauses1 = combine_same_ranges(Clauses),
+  try check_domain_complexity(Clauses1) of
+    ok -> lists:sort(Clauses1)
   catch
-    throw:too_many -> [collapse_clauses(Clauses2)]
+    throw:too_many -> [collapse_clauses(Clauses1)]
+  end.
+
+combine_same_ranges(Clauses) ->
+  combine_same_ranges(Clauses, [], Clauses).
+
+combine_same_ranges([], Acc, OldClauses) ->
+  NewClauses = combine_duplicate_doms(lists:reverse(Acc)),
+  case NewClauses =:= OldClauses of
+    true  -> NewClauses;
+    false -> combine_same_ranges(NewClauses, [], NewClauses)
+  end;
+combine_same_ranges([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
+  case combine_same_range(Rest, Domain, Range) of
+    {true, NewRest} ->
+      combine_same_ranges(NewRest, Acc, OldClauses);
+    false ->
+      combine_same_ranges(Rest, [Clause| Acc], OldClauses)
   end.
 
 combine_duplicate_doms(Clauses) ->
@@ -2047,23 +2063,6 @@ has_duplicates(Domain, Range, [{DomainB, RangeB} = Clause|Rest],
       has_duplicates(Domain, t_sup(Range, RangeB), Rest, NewRest, true);
     false ->
       has_duplicates(Domain, Range, Rest, [Clause| NewRest], Status)
-  end.
-
-combine_same_ranges(Clauses) ->
-  combine_same_ranges(Clauses, [], Clauses).
-
-combine_same_ranges([], Acc, OldClauses) ->
-  NewClauses = lists:reverse(Acc),
-  case NewClauses =:= OldClauses of
-    true  -> NewClauses;
-    false -> combine_same_ranges(NewClauses, [], NewClauses)
-  end;
-combine_same_ranges([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
-  case combine_same_range(Rest, Domain, Range) of
-    {true, NewRest} ->
-      combine_same_ranges(NewRest, Acc, OldClauses);
-    false ->
-      combine_same_ranges(Rest, [Clause| Acc], OldClauses)
   end.
 
 combine_same_range(Clauses, Domain, Range) ->
