@@ -2004,116 +2004,73 @@ expand_range_from_set(Range = ?int_range(From, To), Set) ->
 -define(idebug(_F,_A), ok).
 -endif.
 
--define(MAX_DOMAIN_COMPLEXITY, 100000).
-
 combine_clauses([{?any,_}]=Clauses) ->
   Clauses;
 combine_clauses(Clauses) ->
-  Clauses1 = combine_same_ranges(Clauses),
-  try check_domain_complexity(Clauses1) of
-    ok -> lists:sort(Clauses1)
-  catch
-    throw:too_many -> [collapse_clauses(Clauses1)]
-  end.
+  SortedClauses = lists:usort(Clauses),
+  combine_clauses(SortedClauses, [], SortedClauses).
 
-combine_same_ranges(Clauses) ->
-  combine_same_ranges(Clauses, [], Clauses).
-
-combine_same_ranges([], Acc, OldClauses) ->
-  NewClauses = combine_duplicate_doms(lists:reverse(Acc)),
+combine_clauses([], Acc, OldClauses) ->
+  NewClauses = lists:reverse(Acc),
   case NewClauses =:= OldClauses of
-    true  -> NewClauses;
-    false -> combine_same_ranges(NewClauses, [], NewClauses)
+    true  -> lists:sort(NewClauses);
+    false -> combine_clauses(NewClauses, [], NewClauses)
   end;
-combine_same_ranges([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
-  case combine_same_range(Rest, Domain, Range) of
+combine_clauses([{Domain, Range} = Clause| Rest], Acc, OldClauses) ->
+  case combine_clause(Rest, Domain, Range) of
     {true, NewRest} ->
-      combine_same_ranges(NewRest, Acc, OldClauses);
+      combine_clauses(NewRest, Acc, OldClauses);
     false ->
-      combine_same_ranges(Rest, [Clause| Acc], OldClauses)
+      combine_clauses(Rest, [Clause| Acc], OldClauses)
   end.
 
-combine_duplicate_doms(Clauses) ->
-  combine_duplicate_doms(Clauses, []).
+combine_clause(Clauses, Domain, Range) ->
+  combine_clause(Clauses, Domain, Range, false, []).
 
-combine_duplicate_doms([], Acc) ->
-  lists:reverse(Acc);
-combine_duplicate_doms([Clause|Rest], Acc) ->
-  case has_duplicates(Clause, Rest) of
-    {true, NewClause, NewRest} ->
-      combine_duplicate_doms(NewRest, [NewClause|Acc]);
-    false ->
-      combine_duplicate_doms(Rest, [Clause| Acc])
-  end.
-
-has_duplicates({Domain, Range}, Rest) ->
-  has_duplicates(Domain, Range, Rest, [], false).
-
-has_duplicates(Domain, Range, [], NewRest, Status) ->
-  case Status of
-    true ->
-      {true, {Domain, Range}, lists:reverse(NewRest)};
-    false ->
-      false
-  end;
-has_duplicates(Domain, Range, [{DomainB, RangeB} = Clause|Rest],
-	       NewRest, Status) ->
-  case t_is_equal(Domain, DomainB) of
-    true ->
-      has_duplicates(Domain, t_sup(Range, RangeB), Rest, NewRest, true);
-    false ->
-      has_duplicates(Domain, Range, Rest, [Clause| NewRest], Status)
-  end.
-
-combine_same_range(Clauses, Domain, Range) ->
-  combine_same_range(Clauses, Domain, Range, false, []).
-
-combine_same_range([], _Domain, _Range, false, _NewRest) ->
+combine_clause([], _Domain, _Range, false, _NewRest) ->
   false;
-combine_same_range([], Domain, Range, true, NewRest) ->
+combine_clause([], Domain, Range, true, NewRest) ->
   {true, [{Domain, Range}| lists:reverse(NewRest)]};
-combine_same_range([{DomainA, RangeA} = Clause| Rest], Domain, Range,
-		   Result, NewRest) ->
+combine_clause([{Domain, RangeA}| Rest], Domain, Range, _Result, NewRest) ->
+  combine_clause(Rest, Domain, t_sup(RangeA, Range), true, NewRest);
+combine_clause([{DomainA, Range} = Clause| Rest], Domain, Range, Result,
+	       NewRest) ->
+  Inf = t_inf(DomainA, Domain),
   Combinable =
-    case t_is_equal(RangeA, Range) of
-      true ->
-	case combinable(DomainA, Domain) of
-	  false ->
-	    case t_is_subtype(DomainA, Domain) of
-	      true  -> {true, Domain};
-	      false ->
-		case t_is_subtype(Domain, DomainA) of
-		  true -> terminate;
-		  false -> false
-		end
-	    end;
-	  True -> True
-	end;
+    case t_is_equal(DomainA, Inf) of
+      true  -> {true, Domain};
       false ->
-	case t_is_subtype(Range, RangeA) of
-	  true ->
-	    case t_is_subtype(Domain, DomainA) of
-	      true -> terminate;
-	      false -> false
-	    end;
-	  false ->
-	    case t_is_subtype(RangeA, Range) of
-	      true ->
-		case t_is_subtype(DomainA, Domain) of
-		  true -> {true, Domain};
-		  false -> false
-		end;
-	      false -> false
-	    end
+	case t_is_equal(Domain, Inf) of
+	  true  -> {true, DomainA};
+	  false -> combinable(DomainA, Domain)
 	end
     end,
   case Combinable of
     {true, NewDomain} ->
-      combine_same_range(Rest, NewDomain, Range, true, NewRest);
-    terminate ->
-      {true, lists:reverse(NewRest, [Clause| Rest])};
+      combine_clause(Rest, NewDomain, Range, true, NewRest);
     false ->
-      combine_same_range(Rest, Domain, Range, Result, [Clause| NewRest])
+      combine_clause(Rest, Domain, Range, Result, [Clause| NewRest])
+  end;
+combine_clause([{DomainA, RangeA} = Clause| Rest], Domain, Range, Result,
+	       NewRest) ->
+  case t_is_subtype(RangeA, Range) of
+    true ->
+      case t_is_subtype(DomainA, Domain) of
+	true  -> combine_clause(Rest, Domain, Range, true, NewRest);
+	false -> combine_clause(Rest, Domain, Range, Result, [Clause| NewRest])
+      end;
+    false ->
+      case t_is_subtype(Range, RangeA) of
+	true ->
+	  case t_is_subtype(Domain, DomainA) of
+	    true ->
+	      {true, lists:reverse(NewRest, [Clause| Rest])};
+	    false ->
+	      combine_clause(Rest, Domain, Range, Result, [Clause| NewRest])
+	  end;
+	false ->
+	  combine_clause(Rest, Domain, Range, Result, [Clause| NewRest])
+      end
   end.
 
 combinable(?product(List1)=_P1, ?product(List2)=_P2) ->
@@ -2130,30 +2087,6 @@ combinable([Type1| Rest1], [Type2| Rest2], Acc, N) ->
     false ->
       combinable(Rest1, Rest2, [t_sup(Type1, Type2)| Acc], N+1)
   end.
-
--define(check_too_many(N, NormalResult),
-	case N < ?MAX_DOMAIN_COMPLEXITY of
-	  true -> NormalResult;
-	  false -> throw(too_many)
-	end).
-
-check_domain_complexity(Clauses) ->
-  check_domain_complexity(Clauses, 1).
-
-check_domain_complexity([], N) ->
-  ?check_too_many(N, ok);
-check_domain_complexity([{Domain, _Range}| Clauses], N) ->
-  ?check_too_many(N, check_domain_complexity(Clauses,
-					     N + count_elements(Domain))).
-
-count_elements(?any) -> 1;
-count_elements(?product(List)) ->
-  count_elements(List, 1).
-
-count_elements([], N) ->
-  ?check_too_many(N,N);
-count_elements([Type| Types], N) ->
-  ?check_too_many(N, count_elements(Types, length(t_elements(Type))*N)).
 
 collapse_clauses([Clause]) ->
   Clause;
