@@ -2128,22 +2128,7 @@ combinable([Type1| Rest1], [Type2| Rest2], Acc, N) ->
     true ->
       combinable(Rest1, Rest2, [Type1| Acc], N);
     false ->
-      case safe_comb(Type1, Type2) of
-	{true, Sup} ->
-	  combinable(Rest1, Rest2, [Sup| Acc], N+1);
-	false ->
-	  false
-      end
-  end.
-
-safe_comb(Type1, Type2) ->
-  Sup = t_sup(Type1, Type2),
-  Inf = t_inf(Type1, Type2),
-  S1 = t_sup(t_subtract(Sup, Type2), Inf),
-  S2 = t_sup(t_subtract(Sup, Type1), Inf),
-  case (t_is_equal(Type1, S1) andalso t_is_equal(Type2, S2)) of
-    true  -> {true, Sup};
-    false -> false
+      combinable(Rest1, Rest2, [t_sup(Type1, Type2)| Acc], N+1)
   end.
 
 -define(check_too_many(N, NormalResult),
