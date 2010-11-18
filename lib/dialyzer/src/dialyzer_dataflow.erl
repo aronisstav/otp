@@ -82,19 +82,20 @@
 
 -define(TYPE_LIMIT, 3).
 
--record(state, {callgraph            :: dialyzer_callgraph:callgraph(),
-		envs                 :: dict(),
-		fun_tab		     :: dict(),
-		plt		     :: dialyzer_plt:plt(),
-		opaques              :: [erl_types:erl_type()],
+-record(state, {callgraph                    :: dialyzer_callgraph:callgraph(),
+		envs                         :: dict(),
+		fun_tab		             :: dict(),
+		call_info                    :: dict(),
+		plt		             :: dialyzer_plt:plt(),
+		opaques                      :: [erl_types:erl_type()],
 		races = dialyzer_races:new() :: dialyzer_races:races(),
-		records = dict:new() :: dict(),
-		tree_map	     :: dict(),
-		warning_mode = false :: boolean(),
-		warnings = []        :: [dial_warning()],
-		work                 :: {[_], [_], set()},
-		module               :: module(),
-		behaviour_api_dict = [] ::
+		records = dict:new()         :: dict(),
+		tree_map	             :: dict(),
+		warning_mode = false         :: boolean(),
+		warnings = []                :: [dial_warning()],
+		work                         :: {[_], [_], set()},
+		module                       :: module(),
+		behaviour_api_dict = []      ::
 		  dialyzer_behaviours:behaviour_api_dict()}).
 
 -record(map, {dict = dict:new()   :: dict(),
@@ -127,7 +128,7 @@ get_warnings(Tree, Plt, Callgraph, Records, NoWarnUnused) ->
 
 -spec get_fun_types(cerl:c_module(), dialyzer_plt:plt(),
                     dialyzer_callgraph:callgraph(), dict()) ->
-	{dict(), dict(), [label()], [string()]}.
+	{dict(), dict(), [label()], [string()], dict()}.
 
 get_fun_types(Tree, Plt, Callgraph, Records) ->
   State = analyze_module(Tree, Plt, Callgraph, Records, false),
@@ -135,7 +136,8 @@ get_fun_types(Tree, Plt, Callgraph, Records) ->
   {state__all_fun_types(State),
    dialyzer_callgraph:get_race_code(Callgraph1),
    dialyzer_callgraph:get_public_tables(Callgraph1),
-   dialyzer_callgraph:get_named_tables(Callgraph1)}.
+   dialyzer_callgraph:get_named_tables(Callgraph1),
+   state__all_call_info(State)}.
 
 %%--------------------------------------------------------------------
 
@@ -2935,10 +2937,11 @@ state__new(Callgraph, Tree, Plt, Module, Records, BehaviourTranslations) ->
   Work = init_work(ExportedFuns),
   Env = lists:foldl(fun(Fun, Env) -> dict:store(Fun, map__new(), Env) end,
 		    dict:new(), Funs),
-  #state{callgraph = Callgraph, envs = Env, fun_tab = FunTab, opaques = Opaques,
-	 plt = Plt, races = dialyzer_races:new(), records = Records,
-	 warning_mode = false, warnings = [], work = Work, tree_map = TreeMap,
-	 module = Module, behaviour_api_dict = BehaviourTranslations}.
+  #state{callgraph = Callgraph, envs = Env, fun_tab = FunTab,
+	 call_info = dict:new(), opaques = Opaques, plt = Plt,
+	 races = dialyzer_races:new(), records = Records, warning_mode = false,
+	 warnings = [], work = Work, tree_map = TreeMap, module = Module,
+	 behaviour_api_dict = BehaviourTranslations}.
 
 state__warning_mode(#state{warning_mode = WM}) ->
   WM.
@@ -3174,6 +3177,9 @@ state__clean_not_called(#state{fun_tab = FunTab} = State) ->
 	     end, FunTab),
   State#state{fun_tab = NewFunTab}.
 
+state__all_call_info(#state{call_info = CallInfo}) ->
+  CallInfo.
+
 state__all_fun_types(State) ->
   #state{fun_tab = FunTab} = state__clean_not_called(State),
   Tab1 = dict:erase(top, FunTab),
@@ -3312,7 +3318,15 @@ state__find_apply_return(Tree, #state{callgraph = Callgraph} = State) ->
       end
   end.
 
-forward_args(Fun, ArgTypes, #state{work = Work, fun_tab = FunTab} = State) ->
+forward_args(Fun, ArgTypes, #state{work = Work, fun_tab = FunTab,
+				   call_info = CallInfo} = State) ->
+  OldCalls =
+    case dict:find(Fun, CallInfo) of
+      {ok, Calls} -> Calls;
+      error -> ordsets:new()
+    end,
+  NewCalls = ordsets:add_element(ArgTypes, OldCalls),
+  State1 = State#state{call_info = dict:store(Fun, NewCalls, CallInfo)},
   {OldArgTypes, OldOut, Fixpoint} =
     case dict:find(Fun, FunTab) of
       {ok, {not_handled, {OldArgTypes0, OldOut0}}} ->
@@ -3322,7 +3336,7 @@ forward_args(Fun, ArgTypes, #state{work = Work, fun_tab = FunTab} = State) ->
 	 t_is_subtype(t_product(ArgTypes), t_product(OldArgTypes0))}
     end,
   case Fixpoint of
-    true -> State;
+    true -> State1;
     false ->
       NewArgTypes = [t_sup(X, Y) || {X, Y} <- lists:zip(ArgTypes, OldArgTypes)],
       NewWork = add_work(Fun, Work),
@@ -3330,7 +3344,7 @@ forward_args(Fun, ArgTypes, #state{work = Work, fun_tab = FunTab} = State) ->
 	     [state__lookup_name(Fun, State),
 	      t_to_string(t_product(NewArgTypes))]),
       NewFunTab = dict:store(Fun, {NewArgTypes, OldOut}, FunTab),
-      State#state{work = NewWork, fun_tab = NewFunTab}
+      State1#state{work = NewWork, fun_tab = NewFunTab}
   end.
 
 -spec state__cleanup(state()) -> state().

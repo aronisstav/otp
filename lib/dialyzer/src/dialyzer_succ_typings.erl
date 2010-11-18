@@ -55,11 +55,12 @@
 
 -type parent() :: 'none' | pid().
 
--record(st, {callgraph      :: dialyzer_callgraph:callgraph(),
-	     codeserver     :: dialyzer_codeserver:codeserver(),
-	     no_warn_unused :: set(),
-	     parent = none  :: parent(),
-	     plt            :: dialyzer_plt:plt()}).
+-record(st, {callgraph              :: dialyzer_callgraph:callgraph(),
+	     codeserver             :: dialyzer_codeserver:codeserver(),
+	     no_warn_unused         :: set(),
+	     parent = none          :: parent(),
+	     plt                    :: dialyzer_plt:plt(),
+	     call_info = dict:new() :: dict()}).
 
 %%--------------------------------------------------------------------
 
@@ -75,8 +76,8 @@ analyze_callgraph(Callgraph, Plt, Codeserver) ->
          dialyzer_plt:plt().
 
 analyze_callgraph(Callgraph, Plt, Codeserver, Parent) ->
-  State = #st{callgraph = Callgraph, plt = Plt, 
-	      codeserver = Codeserver, parent = Parent},
+  State = #st{callgraph = Callgraph, plt = Plt, codeserver = Codeserver,
+	      parent = Parent, call_info = dict:new()},
   NewState = get_refined_success_typings(State),
   NewState#st.plt.
 
@@ -206,7 +207,7 @@ refine_one_module(M, State) ->
   AllFuns = collect_fun_info([ModCode]),
   FunTypes = get_fun_types_from_plt(AllFuns, Callgraph, PLT),
   Records = dialyzer_codeserver:lookup_mod_records(M, CodeServer),
-  {NewFunTypes, RaceCode, PublicTables, NamedTables} =
+  {NewFunTypes, RaceCode, PublicTables, NamedTables, CallInfo} =
     dialyzer_dataflow:get_fun_types(ModCode, PLT, Callgraph, Records),
   NewCallgraph =
     dialyzer_callgraph:renew_race_info(Callgraph, RaceCode, PublicTables,
@@ -219,11 +220,16 @@ refine_one_module(M, State) ->
       ?debug("Not fixpoint\n", []),
       NewState = insert_into_plt(dict:from_list(NotFixpoint), State),
       NewState1 = st__renew_state_calls(NewCallgraph, NewState),
-      {NewState1, ordsets:from_list([FunLbl || {FunLbl,_Type} <- NotFixpoint])}
+      NewState2 = insert_fun_call_info(CallInfo, NewState1),
+      {NewState2, ordsets:from_list([FunLbl || {FunLbl,_Type} <- NotFixpoint])}
   end.
 
 st__renew_state_calls(Callgraph, State) ->
   State#st{callgraph = Callgraph}.
+
+insert_fun_call_info(CallInfo, #st{call_info = OldCallInfo} = State) ->
+  Merge = fun(_K, V1, V2) -> ordsets:union(V1, V2) end,
+  State#st{call_info = dict:merge(Merge, OldCallInfo, CallInfo)}.
 
 refine_one_scc(SCC, State) ->
   refine_one_scc(SCC, State, []).
@@ -322,6 +328,7 @@ find_succ_typings(#st{callgraph = Callgraph, parent = Parent} = State,
   end.
 
 analyze_scc(SCC, #st{codeserver = Codeserver,
+                     call_info = CallInfo,
 		     callgraph = Callgraph,
 		     plt = Plt} = State) ->
   SCC_Info = [{MFA, 
@@ -334,17 +341,19 @@ analyze_scc(SCC, #st{codeserver = Codeserver,
   Contracts3 = orddict:from_list(Contracts2),
   NextLabel = dialyzer_codeserver:get_next_core_label(Codeserver),
   {SuccTypes, PltContracts, NotFixpoint} = 
-    find_succ_types_for_scc(SCC_Info, Contracts3, NextLabel, Callgraph, Plt),
+    find_succ_types_for_scc(SCC_Info, Contracts3, NextLabel,
+                            Callgraph, Plt, CallInfo),
   State1 = insert_into_plt(SuccTypes, State),
   ContrPlt = dialyzer_plt:insert_contract_list(State1#st.plt, PltContracts),
   {State1#st{plt = ContrPlt}, NotFixpoint}.
 
-find_succ_types_for_scc(SCC_Info, Contracts, NextLabel, Callgraph, Plt) ->
+find_succ_types_for_scc(SCC_Info, Contracts, NextLabel,
+                        Callgraph, Plt, CallInfo) ->
   %% Assume that the PLT contains the current propagated types
   AllFuns = collect_fun_info([Fun || {_MFA, {_Var, Fun}, _Rec} <- SCC_Info]),
   PropTypes = get_fun_types_from_plt(AllFuns, Callgraph, Plt),
-  FunTypes = dialyzer_typesig:analyze_scc(SCC_Info, NextLabel, 
-					  Callgraph, Plt, PropTypes),
+  FunTypes = dialyzer_typesig:analyze_scc(SCC_Info, NextLabel, Callgraph, Plt,
+					  PropTypes, CallInfo),
   AllFunSet = sets:from_list([X || {X, _} <- AllFuns]),
   FilteredFunTypes = dict:filter(fun(X, _) ->
 				      sets:is_element(X, AllFunSet) 

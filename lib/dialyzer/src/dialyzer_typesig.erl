@@ -28,7 +28,7 @@
 
 -module(dialyzer_typesig).
 
--export([analyze_scc/5]).
+-export([analyze_scc/6]).
 -export([get_safe_underapprox/2]).
 
 -import(erl_types,
@@ -115,7 +115,8 @@
 		records     = dict:new() :: dict(),
 		opaques     = []         :: [erl_types:erl_type()],
 		scc         = []         :: [type_var()],
-		mfas        = []         :: [dialyzer_callgraph:mfa_or_funlbl()]
+		mfas        = []         :: [dialyzer_callgraph:mfa_or_funlbl()],
+		call_info                :: dict()
 	       }).
 
 %%-----------------------------------------------------------------------------
@@ -168,13 +169,12 @@
 %% FunTypes  - A dictionary.
 %%-----------------------------------------------------------------------------
 
--spec analyze_scc(typesig_scc(), label(),
-		  dialyzer_callgraph:callgraph(),
-		  dialyzer_plt:plt(), dict()) -> dict().
+-spec analyze_scc(typesig_scc(), label(), dialyzer_callgraph:callgraph(),
+		  dialyzer_plt:plt(), dict(), dict()) -> dict().
 
-analyze_scc(SCC, NextLabel, CallGraph, Plt, PropTypes) ->
+analyze_scc(SCC, NextLabel, CallGraph, Plt, PropTypes, CallInfo) ->
   assert_format_of_scc(SCC),
-  State1 = new_state(SCC, NextLabel, CallGraph, Plt, PropTypes),
+  State1 = new_state(SCC, NextLabel, CallGraph, Plt, PropTypes, CallInfo),
   DefSet = add_def_list([Var || {_MFA, {Var, _Fun}, _Rec} <- SCC], sets:new()),
   State2 = traverse_scc(SCC, DefSet, State1),
   State3 = state__finalize(State2),
@@ -335,28 +335,37 @@ traverse(Tree, DefinedVars, State) ->
 	  {ok, Dom} -> t_fun(Dom, t_none())
 	end,
       TreeVar = mk_var(Tree),
-      State2 =
+      State1 =
+	case dict:find(t_var_name(TreeVar), State#state.call_info) of
+	  {ok, Calls} ->
+	    TypeVars = mk_var_list(Vars),
+	    ListOfCons = [mk_permanent_conj_list(TypeVars, Call) || Call <- Calls],
+	    CallConstraint = mk_disj_constraint_list(ListOfCons),
+	    state__store_conj(CallConstraint, State0);
+	  error -> State0
+	end,
+      State3 =
 	try
-	  State1 = case state__add_prop_constrs(Tree, State0) of
-		     not_called -> State0;
+	  State2 = case state__add_prop_constrs(Tree, State1) of
+		     not_called -> State1;
 		     PropState -> PropState
 		   end,
-	  {BodyState, BodyVar} = traverse(Body, DefinedVars1, State1),
+	  {BodyState, BodyVar} = traverse(Body, DefinedVars1, State2),
 	  state__store_conj(TreeVar, eq,
 			    t_fun(mk_var_list(Vars), BodyVar), BodyState)
 	catch
 	  throw:error ->
 	    state__store_conj(TreeVar, eq, FunFailType, State0)
 	end,
-      Cs = state__cs(State2),
-      State3 = state__store_constrs(TreeVar, Cs, State2),
+      Cs = state__cs(State3),
+      State4 = state__store_constrs(TreeVar, Cs, State3),
       Ref = mk_constraint_ref(TreeVar, get_deps(Cs)),
       OldCs = state__cs(State),
-      State4 = state__new_constraint_context(State3),
-      State5 = state__store_conj_list([OldCs, Ref], State4),
-      State6 = state__store_fun_arity(Tree, State5),
-      State7 = state__add_fun_to_scc(TreeVar, State6),
-      {State7, TreeVar};
+      State5 = state__new_constraint_context(State4),
+      State6 = state__store_conj_list([OldCs, Ref], State5),
+      State7 = state__store_fun_arity(Tree, State6),
+      State8 = state__add_fun_to_scc(TreeVar, State7),
+      {State8, TreeVar};
     'let' ->
       Vars = cerl:let_vars(Tree),
       Arg = cerl:let_arg(Tree),
@@ -711,18 +720,22 @@ intersect_into_conj(Intersections, ArgVars, Dst) ->
 intersect_into_conj([], _ArgVars, _Dst, Acc) ->
   lists:reverse(Acc);
 intersect_into_conj([{ArgTypes, RetType}|Rest], ArgVars, Dst, Acc) ->
-  try mk_constraints([Dst|ArgVars], sub, [RetType|ArgTypes]) of
-    Constr ->
-      NewConj = mk_constraint_list(conj, Constr),
-      FinalConj =
-	case NewConj#constraint_list.deps of
-	  [] -> NewConj#constraint_list{deps = [t_var_name(Dst)]};
-	  _  -> NewConj
-	end,
+  try mk_permanent_conj_list([Dst| ArgVars], [RetType| ArgTypes]) of
+    FinalConj ->
       intersect_into_conj(Rest, ArgVars, Dst, [FinalConj| Acc])
   catch
     _:_ ->
       intersect_into_conj(Rest, ArgVars, Dst, Acc)
+  end.
+
+mk_permanent_conj_list([], []) ->
+  empty_conj_constraint_list();
+mk_permanent_conj_list([H|_] = Vars, Types) ->
+  Constr = mk_constraints(Vars, sub, Types),
+  NewConj = mk_conj_constraint_list(Constr),
+  case NewConj#constraint_list.deps of
+    [] -> NewConj#constraint_list{deps = [t_var_name(H)]};
+    _  -> NewConj
   end.
 
 filter_match_fail([Clause] = Cls) ->
@@ -2219,7 +2232,7 @@ mk_var_no_lit_list(List) ->
 %%
 %% ============================================================================
 
-new_state(SCC0, NextLabel, CallGraph, Plt, PropTypes) ->
+new_state(SCC0, NextLabel, CallGraph, Plt, PropTypes, CallInfo) ->
   List = [{MFA, Var} || {MFA, {Var, _Fun}, _Rec} <- SCC0],
   NameMap = dict:from_list(List),
   MFAs = [MFA || {MFA, _Var} <- List],
@@ -2228,7 +2241,8 @@ new_state(SCC0, NextLabel, CallGraph, Plt, PropTypes) ->
 		   dialyzer_callgraph:is_self_rec(t_var_name(F), CallGraph)],
   #state{callgraph = CallGraph, name_map = NameMap, next_label = NextLabel,
 	 prop_types = PropTypes, plt = Plt, scc = ordsets:from_list(SCC),
-	 mfas = MFAs, self_recs = ordsets:from_list(SelfRecs)}.
+	 mfas = MFAs, self_recs = ordsets:from_list(SelfRecs),
+	 call_info = CallInfo}.
 
 state__set_rec_dict(State, RecDict) ->
   State#state{records = RecDict}.
@@ -2529,11 +2543,14 @@ mk_constraint_list(Type, List) ->
   List2 = ordsets:filter(fun(X) -> get_deps(X) =/= [] end, List1),
   Deps = calculate_deps(List2),
   case Deps =:= [] of
-    true -> #constraint_list{type = conj,
-			     list = [mk_constraint(t_any(), eq, t_any())],
-			     deps = []};
+    true -> empty_conj_constraint_list();
     false -> #constraint_list{type = Type, list = List2, deps = Deps}
   end.
+
+empty_conj_constraint_list() ->
+  #constraint_list{type = conj,
+		   list = [mk_constraint(t_any(), eq, t_any())],
+		   deps = []}.
 
 lift_lists(Type, List) ->
   lift_lists(Type, List, []).
@@ -2571,7 +2588,7 @@ update_constraint_list(CL, List) ->
 %% Note that by not expanding we lose some precision, but we get a
 %% safe over approximation.
 
--define(DISJ_NORM_FORM_LIMIT, 50).
+-define(DISJ_NORM_FORM_LIMIT, 60).
 
 mk_disj_norm_form(#constraint_list{} = CL) ->
   try
