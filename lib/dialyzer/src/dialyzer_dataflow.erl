@@ -816,14 +816,15 @@ get_apply_fail_msg(Fun, Args, ArgTypes, NewArgTypes,
 	  {opaque_type_test, [atom_to_list(F), erl_types:t_to_string(Opaque)]};
 	false ->
 	  SigArgs = t_fun_args(Sig),
-	  case is_opaque_related_problem(ArgNs, ArgTypes) of
+	  AdvArgNs = find_failing_args(Sig, ArgTypes),
+	  case is_opaque_related_problem(AdvArgNs, ArgTypes) of
 	    true ->  %% an opaque term is used where a structured term is expected
 	      ExpectedArgs =
 		case FailReason of
 		  only_sig -> SigArgs;
 		  _ -> ContrArgs
 		end,
-	      {call_with_opaque, [M, F, ArgStrings, ArgNs, ExpectedArgs]};
+	      {call_with_opaque, [M, F, ArgStrings, AdvArgNs, ExpectedArgs]};
 	    false ->
 	      case is_opaque_related_problem(ArgNs, SigArgs) orelse
 		is_opaque_related_problem(ArgNs, ContrArgs) of
@@ -835,8 +836,7 @@ get_apply_fail_msg(Fun, Args, ArgTypes, NewArgTypes,
 		    end,
 		  {call_without_opaque, [M, F, ArgStrings, ExpectedTriples]};
 		false -> %% there is a structured term clash in some argument
-		  {call, [M, F, ArgStrings,
-			  find_failing_args(Sig, ArgTypes), FailReason,
+		  {call, [M, F, ArgStrings, AdvArgNs, FailReason,
 			  format_sig_args(Sig, State),
 			  format_type(t_fun_range(Sig), State),
 			  ContractInfo]}
