@@ -1706,7 +1706,7 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 
 -define(SCC_TRIES, 10).
 -define(SCC_MAX_LENGTH, 30).
--define(SELF_RECURSIVE_TRIES, 22).
+-define(SELF_RECURSIVE_TRIES, 30).
 
 solve([Fun], State) ->
   ?debug("============ Analyzing Fun: ~w ===========\n",
@@ -2588,7 +2588,7 @@ update_constraint_list(CL, List) ->
 %% Note that by not expanding we lose some precision, but we get a
 %% safe over approximation.
 
--define(DISJ_NORM_FORM_LIMIT, 60).
+-define(DISJ_NORM_FORM_LIMIT, 100).
 
 mk_disj_norm_form(#constraint_list{} = CL) ->
   try
