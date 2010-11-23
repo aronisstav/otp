@@ -2375,20 +2375,9 @@ t_elements(?tuple_set(_) = TS) ->
   end;
 t_elements(?union(List)) ->
   lists:append([t_elements(T) || T <- List]);
-t_elements(?product([]) = P) -> [P];
-t_elements(?product(List)) when is_list(List)->
-  [?product(ElemList) || ElemList <- product_elements(List)];
 t_elements(?var(_)) -> [?any].  %% yes, vars exist -- what else to do here?
 %% t_elements(T) ->
 %%   io:format("T_ELEMENTS => ~p\n", [T]).
-
-product_elements(List) ->
-  product_elements(List, [[]]).
-
-product_elements([], ListOfLists) ->
-  [lists:reverse(L) || L <- ListOfLists];
-product_elements([Type| List], ListOfLists) ->
-  product_elements(List, [[T|L] || L <- ListOfLists, T <- t_elements(Type)]).
 
 %%-----------------------------------------------------------------------------
 %% Infimum
