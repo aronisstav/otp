@@ -682,7 +682,7 @@ t_solve_remote(?function(List), ET, R, C) ->
 	     {[{RT1, RT2} |InList], RR1 ++ RR2 ++ InRR}
 	 end,
   {OutList, OutRR} = lists:foldl(Fold, {[],[]}, List),
-  {?function(combine_clauses(lists:reverse(OutList))), OutRR};
+  {?function(combine_clauses(OutList)), OutRR};
 t_solve_remote(?list(Types, Term, Size), ET, R, C) ->
   {RT, RR} = t_solve_remote(Types, ET, R, C),
   {?list(RT, Term, Size), RR};
@@ -2588,7 +2588,7 @@ inf_clauses(Clauses1, Clauses2, Mode) ->
   inf_clauses(Clauses1, Clauses2, Mode, []).
 
 inf_clauses([], _Clauses2, _Mode, Acc) ->
-  lists:reverse(Acc);
+  Acc;
 inf_clauses([{Domain1, Range1}| Clauses1], Clauses2, Mode, Acc) ->
   NewAcc = inf_clauses(Domain1, Range1, Clauses2, Mode, Acc),
   inf_clauses(Clauses1, Clauses2, Mode, NewAcc).
