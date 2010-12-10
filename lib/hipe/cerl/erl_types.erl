@@ -2132,8 +2132,8 @@ t_sup(?atom(Set1), ?atom(Set2)) ->
   ?atom(set_union(Set1, Set2));
 t_sup(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   t_bitstr(gcd(gcd(U1, U2), abs(B1-B2)), lists:min([B1, B2]));
-t_sup(?function(Clauses1), ?function(Clauses2)) ->
-  case {check_arity(Clauses1), check_arity(Clauses2)} of
+t_sup(?function(Clauses1) = F1, ?function(Clauses2) = F2) ->
+  case {t_fun_arity(F1), t_fun_arity(F2)} of
     {N, N} when is_integer(N), N>0 ->
       ?function(combine_clauses(Clauses1 ++ Clauses2));
     {_, _} ->
@@ -2231,11 +2231,6 @@ t_sup(T1, T2) ->
   ?union(U1) = force_union(T1),
   ?union(U2) = force_union(T2),
   sup_union(U1, U2).
-
-check_arity([{?product(List), _}|_]) when is_list(List)->
-  length(List);
-check_arity([{?any, _}|_]) ->
-  undefined.
 
 -spec t_sup_lists([erl_type()], [erl_type()]) -> [erl_type()].
 
