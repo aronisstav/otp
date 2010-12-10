@@ -93,6 +93,7 @@
 	 t_fun_range/1,
 	 t_fun_apply_sig/2,
 	 t_fun_clean_args/1,
+	 t_get_intersections/1,
 	 t_has_opaque_subtype/1,
 	 t_has_var/1,
 	 t_identifier/0,
@@ -188,7 +189,6 @@
 	 t_subtract_list/2,
 	 t_sup/1,
 	 t_sup/2,
-	 t_get_intersections/1,
 	 t_tid/0,
 	 t_timeout/0,
 	 t_to_string/1,
@@ -1086,8 +1086,6 @@ t_fun_range(?function(_, Range)) ->
 t_fun_range(?function(List)) ->
   Fun = fun({_, Range}, TypeAcc) -> t_sup(Range, TypeAcc) end,
   lists:foldl(Fun, ?none, List).
-
-
 
 -spec t_fun_apply_sig(erl_type(), [erl_type()]) ->
 			 {erl_type(), erl_type(), erl_type()}.
@@ -2904,8 +2902,6 @@ t_unify(Type, ?var(Id), VarMap, Opaques) ->
     {Id, VarType} -> t_unify(VarType, Type, VarMap, Opaques)
   end;
 
-%% Intersectia: To be reviewed.
-
 t_unify(?function(List1), ?function(List2), VarMap, Opaques) ->
   {Domain1, Range1} = collapse_clauses(List1),
   {Domain2, Range2} = collapse_clauses(List2),
@@ -3116,8 +3112,6 @@ t_subtract(?atom(Set1), ?atom(Set2)) ->
   end;
 t_subtract(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
   subtract_bin(t_bitstr(U1, B1), t_inf(t_bitstr(U1, B1), t_bitstr(U2, B2)));
-
-%% Intersectia: To be reviewed.
 
 t_subtract(?function(_List1) = T1, ?function(_List2) = T2) ->
   case t_is_subtype(T1, T2) of
