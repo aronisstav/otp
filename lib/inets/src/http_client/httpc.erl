@@ -476,7 +476,7 @@ stop_service(Pid) when is_pid(Pid) ->
     case service_info(Pid) of
 	{ok, [{profile, Profile}]} ->
 	    stop_service(Profile);
-	Error ->
+	{error, _} = Error ->
 	    Error
     end.
 
