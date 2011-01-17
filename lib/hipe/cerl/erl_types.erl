@@ -186,7 +186,7 @@
 	 t_subtract_list/2,
 	 t_sup/1,
 	 t_sup/2,
-	 t_tid/0,
+	 t_ets_tid/0,
 	 t_re_mp/0,
 	 t_timeout/0,
 	 t_to_string/1,
@@ -1610,9 +1610,9 @@ t_dict() ->
 t_digraph() ->
   t_opaque(digraph, digraph, [],
 	   t_tuple([t_atom('digraph'),
-		    t_sup(t_atom(), t_tid()),
-		    t_sup(t_atom(), t_tid()),
-		    t_sup(t_atom(), t_tid()),
+		    t_sup(t_atom(), t_ets_tid()),
+		    t_sup(t_atom(), t_ets_tid()),
+		    t_sup(t_atom(), t_ets_tid()),
 		    t_boolean()])).
 
 -spec t_gb_set() -> erl_type().
@@ -1640,9 +1640,9 @@ t_set() ->
 		    t_pos_integer(), t_non_neg_integer(), t_non_neg_integer(),
 		    t_non_neg_integer(), t_tuple(), t_tuple()])).
 
--spec t_tid() -> erl_type().
+-spec t_ets_tid() -> erl_type().
 
-t_tid() ->
+t_ets_tid() ->
   t_opaque(ets, tid, [], t_integer()).
 
 -spec t_re_mp() -> erl_type().
@@ -1655,7 +1655,7 @@ t_re_mp() ->
 
 all_opaque_builtins() ->
   [t_array(), t_dict(), t_digraph(), t_gb_set(),
-   t_gb_tree(), t_queue(), t_set(), t_tid(), t_re_mp()].
+   t_gb_tree(), t_queue(), t_set(), t_ets_tid(), t_re_mp()].
 
 -spec is_opaque_builtin(atom(), atom()) -> boolean().
 
@@ -3665,9 +3665,6 @@ t_from_form({type, _L, string, []}, _TypeNames, _InOpaque, _RecDict,
 t_from_form({type, _L, term, []}, _TypeNames, _InOpaque, _RecDict,
             _VarDict) ->
   {t_any(), []};
-t_from_form({type, _L, tid, []}, _TypeNames, _InOpaque, _RecDict,
-            _VarDict) ->
-  {t_tid(), []};
 t_from_form({type, _L, timeout, []}, _TypeNames, _InOpaque, _RecDict,
             _VarDict) ->
   {t_timeout(), []};

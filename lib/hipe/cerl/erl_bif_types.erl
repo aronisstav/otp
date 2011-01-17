@@ -120,7 +120,7 @@
 		    t_subtract/2,
 		    t_sup/1,
 		    t_sup/2,
-		    t_tid/0,
+		    t_ets_tid/0,
 		    t_re_mp/0,
 		    t_timeout/0,
 		    t_tuple/0,
@@ -4929,7 +4929,7 @@ t_system_profile_return() ->
 %% =====================================================================
 
 t_tab() ->
-  t_sup(t_tid(), t_atom()).
+  t_sup(t_ets_tid(), t_atom()).
 
 t_match_pattern() ->
   t_sup(t_atom(), t_tuple()).
