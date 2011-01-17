@@ -2468,24 +2468,20 @@ inf_tuples_in_sets([], _, Acc, _Mode) -> lists:reverse(Acc);
 inf_tuples_in_sets(_, [], Acc, _Mode) -> lists:reverse(Acc).
 
 inf_union(U1, U2, opaque) ->
-%%---------------------------------------------------------------------
-%%                          Under Testing
-%%----------------------------------------------------------------------
-%%   OpaqueFun = 
-%%     fun(Union1, Union2) ->
-%% 	[_,_,_,_,_,_,_,_,Opaque,_] = Union1,
-%% 	[A,B,F,I,L,N,T,M,_,_R] = Union2,
-%% 	List = [A,B,F,I,L,N,T,M],
-%%         case [T || T <- List, t_inf(T, Opaque, opaque) =/= ?none] of
-%% 	  [] -> ?none;
-%% 	  _  -> Opaque
-%% 	end
-%%     end,
-%%   O1 = OpaqueFun(U1, U2),
-%%   O2 = OpaqueFun(U2, U1),
-%%   Union = inf_union(U1, U2, 0, [], opaque),
-%%   t_sup([O1, O2, Union]);
-  inf_union(U1, U2, 0, [], opaque);
+  OpaqueFun = 
+    fun(Union1, Union2) ->
+	[_,_,_,_,_,_,_,_,Opaque,_] = Union1,
+	[A,B,F,I,L,N,Tu,M,_,_R] = Union2,
+	List = [A,B,F,I,L,N,Tu,M],
+        case [T || T <- List, t_inf(T, Opaque, opaque) =/= ?none] of
+	  [] -> ?none;
+	  _  -> Opaque
+	end
+    end,
+  O1 = OpaqueFun(U1, U2),
+  O2 = OpaqueFun(U2, U1),
+  Union = inf_union(U1, U2, 0, [], opaque),
+  t_sup([O1, O2, Union]);
 inf_union(U1, U2, OtherMode) ->
   inf_union(U1, U2, 0, [], OtherMode).
 
