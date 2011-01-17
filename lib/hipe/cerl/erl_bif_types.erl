@@ -67,6 +67,7 @@
 		    t_identifier/0,
 		    t_inf/2,
 		    t_inf_lists/2,
+		    t_inf_lists/3,
 		    t_integer/0,
 		    t_integer/1,
 		    t_non_neg_integer/0,
@@ -2896,7 +2897,7 @@ type(M, F, A, Xs) when is_atom(M), is_atom(F),
 
 strict(Xs, Ts, F) ->
   %% io:format("inf lists arg~n1:~p~n2:~p ~n", [Xs, Ts]),
-  Xs1 = t_inf_lists(Xs, Ts),
+  Xs1 = t_inf_lists(Xs, Ts, opaque),
   %% io:format("inf lists return ~p ~n", [Xs1]),
   case any_is_none_or_unit(Xs1) of
     true -> t_none();
