@@ -68,7 +68,6 @@
 		    t_inf/2,
 		    t_integer/0,
 		    t_integer/1,
-		    t_non_neg_fixnum/0,
 		    t_non_neg_integer/0,
 		    t_pos_integer/0,
 		    t_integers/1,
