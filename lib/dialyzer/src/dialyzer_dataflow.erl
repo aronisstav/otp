@@ -2741,8 +2741,6 @@ state__new(Callgraph, Tree, Plt, Module, Records, BehaviourTranslations) ->
   FunTab = init_fun_tab(Funs, dict:new(), TreeMap, Callgraph, Plt, Opaques),
   Work = init_work([get_label(Tree)]),
   Env = dict:store(top, map__new(), dict:new()),
-  Opaques = erl_types:module_builtin_opaques(Module) ++
-    erl_types:t_opaque_from_records(Records),
   #state{callgraph = Callgraph, envs = Env, fun_tab = FunTab, opaques = Opaques,
 	 plt = Plt, races = dialyzer_races:new(), records = Records,
 	 warning_mode = false, warnings = [], work = Work, tree_map = TreeMap,
