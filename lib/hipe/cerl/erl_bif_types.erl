@@ -66,6 +66,7 @@
 		    t_fun_range/1,
 		    t_identifier/0,
 		    t_inf/2,
+		    t_inf_lists/2,
 		    t_integer/0,
 		    t_integer/1,
 		    t_non_neg_integer/0,
@@ -2894,7 +2895,7 @@ type(M, F, A, Xs) when is_atom(M), is_atom(F),
 
 strict(Xs, Ts, F) ->
   %% io:format("inf lists arg~n1:~p~n2:~p ~n", [Xs, Ts]),
-  Xs1 = inf_lists(Xs, Ts),
+  Xs1 = t_inf_lists(Xs, Ts),
   %% io:format("inf lists return ~p ~n", [Xs1]),
   case any_is_none_or_unit(Xs1) of
     true -> t_none();
@@ -2906,11 +2907,6 @@ strict(Xs, X) ->
     true -> t_none();
     false -> X
   end.
-
-inf_lists([X | Xs], [T | Ts]) ->
-  [t_inf(X, T) | inf_lists(Xs, Ts)];
-inf_lists([], []) ->
-  [].
 
 any_list(N) -> any_list(N, t_any()).
 
@@ -4590,7 +4586,7 @@ check_fun_application(Fun, Args) ->
 	    false -> ok
 	  end;
 	FunDom when length(FunDom) =:= length(Args) ->
-	  case any_is_none_or_unit(inf_lists(FunDom, Args)) of
+	  case any_is_none_or_unit(t_inf_lists(FunDom, Args)) of
 	    true -> error;
 	    false ->
 	      case t_is_none_or_unit(t_fun_range(Fun)) of
