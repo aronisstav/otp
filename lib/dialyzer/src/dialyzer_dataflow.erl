@@ -1830,11 +1830,9 @@ handle_guard_call(Guard, Map, Env, Eval, State) ->
       handle_guard_type_test(Guard, F, Map, Env, Eval, State);
     {erlang, is_function, 2} ->
       handle_guard_is_function(Guard, Map, Env, Eval, State);
-    MFA when (MFA =:= {erlang, internal_is_record, 3}) or
-	     (MFA =:= {erlang, is_record, 3}) ->
+    {erlang, F, 3} when F =:= internal_is_record; F =:= is_record ->
       handle_guard_is_record(Guard, Map, Env, Eval, State);
-    MFA when (MFA =:= {erlang, length, 1}) or
-	     (MFA =:= {erlang, tuple_size, 1}) ->
+    {erlang, F, 1} when F =:= length; F =:= tuple_size ->
       handle_guard_size_test(MFA, Guard, Map, Env, Eval, State);
     {erlang, '=:=', 2} ->
       handle_guard_eqeq(Guard, Map, Env, Eval, State);
