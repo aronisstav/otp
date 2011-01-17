@@ -253,7 +253,7 @@ compare_types_1([{X, failed_fun}|Left1], [{X, _Type2}|Left2],
 compare_types_1([{X, Type1}|Left1], [{X, Type2}|Left2], Strict, NotFixpoint) ->
   Res = case Strict of
 	  true -> erl_types:t_is_equal(Type1, Type2);
-	  false -> erl_types:t_is_subtype(Type1, Type2)
+	  false -> erl_types:t_is_subtype(Type1, Type2, opaque)
 	end,
   case Res of
     true -> compare_types_1(Left1, Left2, Strict, NotFixpoint);

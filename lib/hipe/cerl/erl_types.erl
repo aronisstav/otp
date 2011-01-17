@@ -138,6 +138,7 @@
 	 t_is_remote/1,
 	 t_is_string/1,
 	 t_is_subtype/2,
+	 t_is_subtype/3,
 	 t_is_tuple/1,
 	 t_is_unit/1,
 	 t_is_var/1,
@@ -3046,7 +3047,12 @@ t_is_equal(_, _) -> false.
 -spec t_is_subtype(erl_type(), erl_type()) -> boolean().
 
 t_is_subtype(T1, T2) ->
-  Inf = t_inf(T1, T2),
+  t_is_subtype(T1, T2, structured).
+
+-spec t_is_subtype(erl_type(), erl_type(), t_inf_mode()) -> boolean().
+
+t_is_subtype(T1, T2, Mode) ->
+  Inf = t_inf(T1, T2, Mode),
   t_is_equal(T1, Inf).
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
