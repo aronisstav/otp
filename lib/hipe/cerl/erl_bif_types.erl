@@ -120,6 +120,7 @@
 		    t_sup/1,
 		    t_sup/2,
 		    t_tid/0,
+		    t_re_MP/0,
 		    t_timeout/0,
 		    t_tuple/0,
 		    t_tuple/1,
@@ -5134,9 +5135,6 @@ t_io_format_string() ->
 %% These are used for the built-in functions of 're'; the functions
 %% whose last name component starts with a capital letter are types
 %% =====================================================================
-
-t_re_MP() ->  %% it's supposed to be an opaque data type
-  t_tuple([t_atom('re_pattern'), t_integer(), t_integer(), t_binary()]).
 
 t_re_RE() ->
   t_sup([t_re_MP(), t_iodata(), t_charlist()]).
