@@ -121,7 +121,7 @@
 		    t_sup/1,
 		    t_sup/2,
 		    t_tid/0,
-		    t_re_MP/0,
+		    t_re_mp/0,
 		    t_timeout/0,
 		    t_tuple/0,
 		    t_tuple/1,
@@ -2807,13 +2807,13 @@ type(os, timestamp, 0, _) ->
 type(re, compile, 1, Xs) ->
   strict(arg_types(re, compile, 1), Xs,
 	 fun (_) ->
-	     t_sup(t_tuple([t_atom('ok'), t_re_MP()]),
+	     t_sup(t_tuple([t_atom('ok'), t_re_mp()]),
 		   t_tuple([t_atom('error'), t_re_ErrorSpec()]))
 	 end);
 type(re, compile, 2, Xs) ->
   strict(arg_types(re, compile, 2), Xs,
 	 fun (_) ->
-	     t_sup(t_tuple([t_atom('ok'), t_re_MP()]),
+	     t_sup(t_tuple([t_atom('ok'), t_re_mp()]),
 		   t_tuple([t_atom('error'), t_re_ErrorSpec()]))
 	 end);
 type(re, run, 2, Xs) ->
@@ -4522,9 +4522,9 @@ arg_types(re, compile, 1) ->
 arg_types(re, compile, 2) ->
   [t_sup(t_iodata(), t_charlist()), t_list(t_re_compile_option())];
 arg_types(re, run, 2) ->
-  [t_sup(t_iodata(), t_charlist()), t_re_RE()];
+  [t_sup(t_iodata(), t_charlist()), t_re_re()];
 arg_types(re, run, 3) ->
-  [t_sup(t_iodata(), t_charlist()), t_re_RE(), t_list(t_re_run_option())];
+  [t_sup(t_iodata(), t_charlist()), t_re_re(), t_list(t_re_run_option())];
 %%------- string --------------------------------------------------------------
 arg_types(string, chars, 2) ->
   [t_char(), t_non_neg_integer()];
@@ -5137,8 +5137,8 @@ t_io_format_string() ->
 %% whose last name component starts with a capital letter are types
 %% =====================================================================
 
-t_re_RE() ->
-  t_sup([t_re_MP(), t_iodata(), t_charlist()]).
+t_re_re() ->
+  t_sup([t_re_mp(), t_iodata(), t_charlist()]).
 
 t_re_compile_option() ->
   t_sup([t_atoms(['unicode', 'anchored', 'caseless', 'dollar_endonly',
