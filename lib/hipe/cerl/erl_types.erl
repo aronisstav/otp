@@ -589,8 +589,9 @@ t_opaque_atom_vals(OpaqueStruct) ->
 -spec t_opaque_match_record(erl_type(), [erl_type()]) -> [erl_type()].
 
 t_opaque_match_record(?tuple([?atom(_) = Tag|_Fields], _, _) = Rec, Opaques) ->
-  [O || O <- Opaques, t_inf(Rec, O, opaque) =/= ?none,
-	lists:member(Tag, t_opaque_tuple_tags(t_opaque_structure(O)))];
+  Os = [O || O <- Opaques, t_inf(Rec, O, opaque) =/= ?none,
+	      lists:member(Tag, t_opaque_tuple_tags(t_opaque_structure(O)))],
+  lists:usort(Os);
 t_opaque_match_record(_, _) -> [].
 
 -spec t_opaque_tuple_tags(erl_type()) -> [erl_type()].
