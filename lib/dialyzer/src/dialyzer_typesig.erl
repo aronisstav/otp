@@ -2217,8 +2217,8 @@ state__store_conj_list([H|T], State) ->
 state__store_conj_list([], State) ->
   State.
 
-state__store_conj(Lhs, Op, Rhs, #state{cs = Cs} = State) ->
-  State#state{cs = [mk_constraint(Lhs, Op, Rhs)|Cs]}.
+state__store_conj(Lhs, Op, Rhs, #state{cs = Cs, opaques = Opaques} = State) ->
+  State#state{cs = [mk_constraint(Lhs, Op, Rhs, Opaques)|Cs]}.
 
 state__store_conj_lists(List1, Op, List2, State) ->
   {NewList1, NewList2} = strip_of_any_constrs(List1, List2),
@@ -2294,6 +2294,9 @@ state__finalize(State) ->
 -spec mk_constraint(erl_types:erl_type(), constr_op(), fvar_or_type()) -> #constraint{}.
 
 mk_constraint(Lhs, Op, Rhs) ->
+  mk_constraint(Lhs, Op, Rhs, []).
+
+mk_constraint(Lhs, Op, Rhs, Opaques) ->
   case t_is_any(Lhs) orelse constraint_opnd_is_any(Rhs) of
     false ->
       Deps = find_constraint_deps([Lhs, Rhs]),
@@ -2302,7 +2305,7 @@ mk_constraint(Lhs, Op, Rhs) ->
       case Deps =:= [] of
 	true ->
 	  %% This constraint is constant. Solve it immediately.
-	  case solve_one_c(C, dict:new(), []) of
+	  case solve_one_c(C, dict:new(), Opaques) of
 	    error -> throw(error);
 	    _ ->
 	      %% This is always true, keep it anyway for logistic reasons

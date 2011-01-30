@@ -630,10 +630,11 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	  none -> {AnyArgs, t_any()}
 	end
     end,
-  ArgModeMask = [case lists:member(Arg, Opaques) of
+  ArgModeMask = [case lists:member(Arg, Opaques) orelse
+		   lists:member(CArg, Opaques) of
                    true -> opaque;
                    false -> structured
-                 end || Arg <- ArgTypes],
+                 end || {Arg, CArg} <- lists:zip(ArgTypes, CArgs)],
   NewArgsSig = t_inf_lists_masked(SigArgs, ArgTypes, ArgModeMask),
   NewArgsContract = t_inf_lists_masked(CArgs, ArgTypes, ArgModeMask),
   NewArgsBif = t_inf_lists_masked(BifArgs, ArgTypes, ArgModeMask),
