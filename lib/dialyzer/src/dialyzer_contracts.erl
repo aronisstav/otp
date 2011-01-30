@@ -298,7 +298,7 @@ solve_constraints(Contract, Call, Constraints) ->
   %% TODO: Find the types for type variables properly
   ContrArgs = erl_types:t_fun_args(Contract1),
   CallArgs = erl_types:t_fun_args(Call),
-  InfList = erl_types:t_inf_lists(ContrArgs, CallArgs),
+  InfList = erl_types:t_inf_lists(ContrArgs, CallArgs, opaque),
   case erl_types:any_none_or_unit(InfList) of
     true -> error;
     false -> {ok, CDict}
