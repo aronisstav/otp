@@ -3074,7 +3074,7 @@ t_unopaque(?union([A,B,F,I,L,N,T,M,O,R]), Opaques) ->
   UT = t_unopaque(T, Opaques),
   UO = case O of
 	 ?none -> [];
-	 ?opaque(Os) -> [t_unopaque(S, Opaques) || #opaque{struct = S} <- Os]
+	 ?opaque(Os) -> [t_unopaque(?opaque([O1]), Opaques) || O1 <- Os]
        end,
   t_sup([?union([A,B,F,I,UL,N,UT,M,?none,R])|UO]);
 t_unopaque(T, _) ->
