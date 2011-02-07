@@ -127,21 +127,30 @@
 %% DEBUG has levels of verbosity, ranging from 1 to 3.
 %% The lower the level, the less verbose the output.
 
-%%-define(DEBUG, 1).
-%%-define(DEBUG_CONSTRAINTS, true).
--ifdef(DEBUG).
--define(DEBUG_NAME_MAP, true).
--endif.
-%%-define(DEBUG_NAME_MAP, true).
+%% -define(DEBUG_LVL_1, true).
+%% -define(DEBUG_CONSTRAINTS, true).
+%% -define(DEBUG_NAME_MAP, true).
 
--ifdef(DEBUG).
--define(debug(__String, __Args, __Level),
-	if __Level =< ?DEBUG -> io:format(__String, __Args);
-	   true -> ok
-	end).
+-ifdef(DEBUG_LVL_3).
+-define(debug3(__String, __Args),io:format(__String, __Args)).
+-define(DEBUG_LVL_2, true).
+-else.
+-define(debug3(__String, __Args), ok).
+-endif.
+
+-ifdef(DEBUG_LVL_2).
+-define(debug2(__String, __Args),io:format(__String, __Args)).
+-define(DEBUG_LVL_1, true).
+-else.
+-define(debug2(__String, __Args), ok).
+-endif.
+
+-ifdef(DEBUG_LVL_1).
+-define(debug1(__String, __Args),io:format(__String, __Args)).
+-define(DEBUG_NAME_MAP, true).
 -define(mk_fun_var(Fun, Vars), mk_fun_var(?LINE, Fun, Vars)).
 -else.
--define(debug(__String, __Args, __Level), ok).
+-define(debug1(__String, __Args), ok).
 -define(mk_fun_var(Fun, Vars), mk_fun_var(Fun, Vars)).
 -endif.
 
@@ -204,7 +213,7 @@ traverse_scc([], _DefSet, AccState) ->
   AccState.
 
 traverse(Tree, DefinedVars, State) ->
-  ?debug("Handling ~p\n", [cerl:type(Tree)], 3),
+  ?debug3("Handling ~p\n", [cerl:type(Tree)]),
   case cerl:type(Tree) of
     alias ->
       Var = cerl:alias_var(Tree),
@@ -622,7 +631,7 @@ handle_try(Tree, DefinedVars, State) ->
 				      mk_constraint(TreeVar, eq, HandlerVar)]),
 	     HandlerVar};
 	  {true, true} ->
-	    ?debug("Throw failed\n", [], 1),
+	    ?debug1("Throw failed\n", []),
 	    throw(error)
 	end,
       Conj = mk_conj_constraint_list([OldCs, NewCs]),
@@ -658,7 +667,7 @@ handle_call(Call, DefinedVars, State) ->
 	{ok, Var} ->
 	  %% This is part of the SCC currently analyzed.
 	  %% Intercept and change this to an apply instead.
-	  ?debug("Found the call to ~w\n", [MFA], 3),
+	  ?debug3("Found the call to ~w\n", [MFA]),
 	  Label = cerl_trees:get_label(Call),
 	  Apply = cerl:ann_c_apply([{label, Label}], Var, Args),
 	  traverse(Apply, DefinedVars, State)
@@ -681,8 +690,8 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
       error ->
 	State;
       {ok, Var} ->
-	?debug("Making apply constraint for ~p (~p)\n",
-	       [MFA, cerl_trees:get_label(Var)], 3),
+	?debug3("Making apply constraint for ~p (~p)\n",
+		[MFA, cerl_trees:get_label(Var)]),
 	state__store_conj_apply(cerl_trees:get_label(Var), Dst, ArgVars, State)
     end,
   State2 =
@@ -697,7 +706,7 @@ get_plt_constr(MFA, Dst, ArgVars, State) ->
     none ->
       State2;
     {value, PltType} ->
-      ?debug("Making intersectioned constraint: ~p\n",[MFA], 1),
+      ?debug1("Making intersectioned constraint: ~p\n",[MFA]),
       PLTIntersections = erl_types:t_get_intersections(PltType),
       state_store_intersections(PLTIntersections, ArgVars, Dst, State2)
   end.
@@ -1580,7 +1589,7 @@ get_bif_constr({erlang, element, 2} = _BIF, Dst, Args,
                #state{cs = Constrs} = State) ->
   GenType = erl_bif_types:type(erlang, element, 2),
   case t_is_none(GenType) of
-    true -> ?debug("Bif: ~w failed\n", [_BIF], 3), throw(error);
+    true -> ?debug3("Bif: ~w failed\n", [_BIF]), throw(error);
     false ->
       Opaques = State#state.opaques,
       Fun = fun(Map) ->
@@ -1605,7 +1614,7 @@ get_bif_constr({M, F, A} = _BIF, Dst, Args, State) ->
   GenType = erl_bif_types:type(M, F, A),
   Opaques = State#state.opaques,
   case t_is_none(GenType) of
-    true -> ?debug("Bif: ~w failed\n", [_BIF], 3), throw(error);
+    true -> ?debug3("Bif: ~w failed\n", [_BIF]), throw(error);
     false ->
       UnopaqueFun =
 	fun(T) -> case lists:member(T, Opaques)  of
@@ -1709,12 +1718,12 @@ get_bif_test_constr(Dst, Arg, Type, State) ->
 -define(SELF_RECURSIVE_TRIES, 30).
 
 solve([Fun], State) ->
-  ?debug("============ Analyzing Fun: ~w ===========\n",
-	 [debug_lookup_name(Fun)], 1),
+  ?debug1("============ Analyzing Fun: ~w ===========\n",
+	  [debug_lookup_name(Fun)]),
   solve_fun(Fun, dict:new(), State);
 solve([_|_] = SCC, State) ->
-  ?debug("============ Analyzing SCC: ~w ===========\n",
-	 [[debug_lookup_name(F) || F <- SCC]], 1),
+  ?debug1("============ Analyzing SCC: ~w ===========\n",
+	  [[debug_lookup_name(F) || F <- SCC]]),
   Countdown =
     case length(SCC) < ?SCC_MAX_LENGTH of
       true  -> ?SCC_TRIES;
@@ -1747,13 +1756,13 @@ solve_scc(SCC, Map, State, TryingUnit, Countdown) ->
 			     dict:erase(t_var_name(Fun), AccFunMap)
 			 end, Map, SCC),
   Map1 = enter_type_lists(Vars, RecTypes, CleanMap),
-  ?debug("Checking SCC: ~w\n", [[debug_lookup_name(F) || F <- SCC]], 1),
+  ?debug1("Checking SCC: ~w\n", [[debug_lookup_name(F) || F <- SCC]]),
   SolveFun = fun(X, Y) -> scc_fold_fun(X, Y, State1, Countdown > 0) end,
   Map2 = lists:foldl(SolveFun, Map1, SCC),
   FunSet = ordsets:from_list([t_var_name(F) || F <- SCC]),
   case maps_are_equal(Map2, Map, FunSet) of
     true ->
-      ?debug("SCC ~w reached fixpoint\n", [SCC], 1),
+      ?debug1("SCC ~w reached fixpoint\n", [SCC]),
       NewTypes = unsafe_lookup_type_list(Funs, Map2),
       case erl_types:any_none([t_fun_range(T) || T <- NewTypes])
 	andalso TryingUnit =:= false of
@@ -1769,7 +1778,7 @@ solve_scc(SCC, Map, State, TryingUnit, Countdown) ->
 	  Map2
       end;
     false ->
-      ?debug("SCC ~w did not reach fixpoint\n", [SCC], 1),
+      ?debug1("SCC ~w did not reach fixpoint\n", [SCC]),
       solve_scc(SCC, Map2, State, TryingUnit, Countdown - 1)
   end.
 
@@ -1787,8 +1796,8 @@ scc_fold_fun(F, FunMap, State, Expand) ->
 		error ->
 		  enter_type(F, NewType, FunMap)
 	      end,
-  ?debug("Done solving for function ~w :: ~s\n", [debug_lookup_name(F),
-						  format_type(NewType)], 1),
+  ?debug1("Done solving for function ~w :: ~s\n", [debug_lookup_name(F),
+						   format_type(NewType)]),
   NewFunMap.
 
 solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
@@ -1798,14 +1807,14 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
       error -> {dict:new(), false};
       {ok, M} -> {M, true}
     end,
-  ?debug("Checking ref to fun: ~w\n", [debug_lookup_name(Id)], 2),
+  ?debug2("Checking ref to fun: ~w\n", [debug_lookup_name(Id)]),
   CheckDeps = ordsets:del_element(t_var_name(Id), Deps),
   case Check andalso maps_are_equal(OldLocalMap, Map, CheckDeps) of
     true ->
-      ?debug("Equal\n", [], 2),
+      ?debug2("Equal\n", []),
       {ok, MapDict, Map};
     false ->
-      ?debug("Not equal. Solving\n", [], 2),
+      ?debug2("Not equal. Solving\n", []),
       Cs = state__get_cs(Id, State),
       Res =
 	case state__is_self_rec(Id, State) of
@@ -1827,7 +1836,7 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
       {NewMapDict, FunType} =
 	case Res of
 	  {error, NewMapDict0} ->
-	    ?debug("Error solving for function ~p\n", [debug_lookup_name(Id)], 2),
+	    ?debug2("Error solving for function ~p\n", [debug_lookup_name(Id)]),
 	    Arity = state__fun_arity(Id, State),
 	    FunType0 =
 	      case state__prop_domain(t_var_name(Id), State) of
@@ -1836,7 +1845,7 @@ solve_ref_or_list(#constraint_ref{id = Id, deps = Deps},
 	      end,
 	    {NewMapDict0, FunType0};
 	  {ok, NewMapDict0, NewMap} ->
-	    ?debug("Done solving fun: ~p\n", [debug_lookup_name(Id)], 2),
+	    ?debug2("Done solving fun: ~p\n", [debug_lookup_name(Id)]),
 	    FunType0 = lookup_type(Id, NewMap),
 	    {NewMapDict0, FunType0}
 	end,
@@ -1855,38 +1864,38 @@ solve_ref_or_list(#constraint_list{type=Type, list = Cs, deps = Deps, id = Id},
       error -> {dict:new(), false};
       {ok, M} -> {M, true}
     end,
-  ?debug("Checking ref to list: ~w\n", [Id], 3),
+  ?debug3("Checking ref to list: ~w\n", [Id]),
   case Check andalso maps_are_equal(OldLocalMap, Map, Deps) of
     true ->
-      ?debug("~w equal ~w\n", [Type, Id], 3),
+      ?debug3("~w equal ~w\n", [Type, Id]),
       {ok, MapDict, Map};
     false ->
-      ?debug("~w not equal: ~w. Solving\n", [Type, Id], 3),
+      ?debug3("~w not equal: ~w. Solving\n", [Type, Id]),
       solve_clist(Cs, Type, Id, Deps, MapDict, Map, State)
   end.
 
 solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
-  ?debug("Solving self recursive ~w\n", [debug_lookup_name(Id)], 2),
+  ?debug2("Solving self recursive ~w\n", [debug_lookup_name(Id)]),
   {ok, RecVar} = state__get_rec_var(Id, State),
-  ?debug("OldRecType ~s\n", [format_type(RecType0)], 2),
+  ?debug2("OldRecType ~s\n", [format_type(RecType0)]),
   RecType = t_limit(RecType0, ?TYPE_LIMIT),
   Map1 = enter_type(RecVar, RecType, dict:erase(t_var_name(Id), Map)),
-  ?debug("\tMap in: ~p\n",
-	 [[{X, format_type(Y)}||{X, Y} <- dict:to_list(Map1)]], 3),
+  ?debug3("\tMap in: ~p\n",
+	  [[{X, format_type(Y)}||{X, Y} <- dict:to_list(Map1)]]),
   {CleanCs, CleanState} = remove_apply_constraints(Cs, Map1, State),
   {{FinalCs, FinalState}, NewCountdown} =
     case Countdown > 0 of
       false ->
-	?debug("Not expanding\n",[], 3),
+	?debug3("Not expanding\n",[]),
 	{re_enumerate(CleanCs, CleanState), Countdown};
       true ->
-	?debug("Expanding...",[], 3),
+	?debug3("Expanding...",[]),
 	case mk_disj_norm_form(CleanCs) of
 	  CleanCs ->
-	    ?debug("failed\n",[], 3),
+	    ?debug3("failed\n",[]),
 	    {re_enumerate(CleanCs, CleanState), 0};
 	  NormalCs ->
-	    ?debug("ok\n",[], 3),
+	    ?debug3("ok\n",[]),
 	    {re_enumerate(NormalCs, CleanState), Countdown-1}
 	end
     end,
@@ -1903,18 +1912,18 @@ solve_self_recursive(Cs, Map, MapDict, Id, RecType0, State, Countdown) ->
 	  Error
       end;
     {ok, NewMapDict, NewMap} ->
-      ?debug("\tMap: ~p\n",
-	     [[{X, format_type(Y)} || {X, Y} <- dict:to_list(NewMap)]], 3),
+      ?debug3("\tMap: ~p\n",
+	      [[{X, format_type(Y)} || {X, Y} <- dict:to_list(NewMap)]]),
       NewRecType = unsafe_lookup_type(Id, NewMap),
       case t_is_equal(NewRecType, RecType0) of
 	true ->
-	  ?debug("-----\nSelf Recursive fixpoint:\nType:~s\n-----\n",
-		 [erl_types:t_to_string(NewRecType)], 2),
+	  ?debug2("-----\nSelf Recursive fixpoint:\nType:~s\n-----\n",
+		  [erl_types:t_to_string(NewRecType)]),
 	  {ok, NewMapDict, enter_type(RecVar, NewRecType, NewMap)};
 	false ->
-	  ?debug("-----\nSelf Recursive NOT fixpoint:\nOld:~s\nNew:~s\n-----\n",
-		 [erl_types:t_to_string(RecType0),
-		  erl_types:t_to_string(NewRecType)], 2),
+	  ?debug2("-----\nSelf Recursive NOT fixpoint:\nOld:~s\nNew:~s\n-----\n",
+		  [erl_types:t_to_string(RecType0),
+		   erl_types:t_to_string(NewRecType)]),
 	  solve_self_recursive(Cs, Map, MapDict, Id, NewRecType,
 			       State, NewCountdown)
       end
@@ -1963,12 +1972,12 @@ solve_cs([#constraint_list{} = C|Tail], Map, MapDict, State) ->
 solve_cs([#constraint{} = C|Tail], Map, MapDict, State) ->
   case solve_one_c(C, Map, State#state.opaques) of
     error ->
-      ?debug("+++++++++++\nFailed: ~s :: ~s ~w ~s :: ~s\n+++++++++++\n",
-	     [format_type(C#constraint.lhs),
-	      format_type(lookup_type(C#constraint.lhs, Map)),
-	      C#constraint.op,
-	      format_type(C#constraint.rhs),
-	      format_type(lookup_type(C#constraint.rhs, Map))], 3),
+      ?debug3("+++++++++++\nFailed: ~s :: ~s ~w ~s :: ~s\n+++++++++++\n",
+	      [format_type(C#constraint.lhs),
+	       format_type(lookup_type(C#constraint.lhs, Map)),
+	       C#constraint.op,
+	       format_type(C#constraint.rhs),
+	       format_type(lookup_type(C#constraint.rhs, Map))]),
       {error, MapDict};
     {ok, NewMap} ->
       solve_cs(Tail, NewMap, MapDict, State)
@@ -1979,11 +1988,11 @@ solve_cs([], Map, MapDict, _State) ->
 solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
   LhsType = lookup_type(Lhs, Map),
   RhsType = lookup_type(Rhs, Map),
-  ?debug("Solving: ~s :: ~s ~w ~s :: ~s\n",
-	 [format_type(Lhs), format_type(LhsType), Op,
-	  format_type(Rhs), format_type(RhsType)], 3),
+  ?debug3("Solving: ~s :: ~s ~w ~s :: ~s\n",
+	  [format_type(Lhs), format_type(LhsType), Op,
+	   format_type(Rhs), format_type(RhsType)]),
   Inf = t_inf(LhsType, RhsType, opaque),
-  ?debug("Inf: ~s\n", [format_type(Inf)], 3),
+  ?debug3("Inf: ~s\n", [format_type(Inf)]),
   case t_is_none(Inf) of
     true -> error;
     false ->
@@ -2009,8 +2018,8 @@ solve_subtype(Type, Inf, Map, Opaques) ->
 	{_, List} -> {ok, enter_type_list(List, Map)}
       catch
 	throw:{mismatch, _T1, _T2} ->
-	  ?debug("Mismatch between ~s and ~s\n",
-		 [format_type(_T1), format_type(_T2)], 3),
+	  ?debug3("Mismatch between ~s and ~s\n",
+		  [format_type(_T1), format_type(_T2)]),
 	  error
       end.
   %% end.
@@ -2115,7 +2124,7 @@ maps_are_equal_1(Map1, Map2, [H|Tail]) ->
   case t_is_equal(T1, T2) of
     true -> maps_are_equal_1(Map1, Map2, Tail);
     false ->
-      ?debug("~w: ~s =/= ~s\n", [H, format_type(T1), format_type(T2)], 2),
+      ?debug2("~w: ~s =/= ~s\n", [H, format_type(T1), format_type(T2)]),
       false
   end;
 maps_are_equal_1(_Map1, _Map2, []) ->
@@ -2146,11 +2155,11 @@ enter_type(Key, Val, Map) ->
   KeyName =
     case is_integer(Key) of
       true ->
-	?debug("Entering ~s :: ~s\n",
-	       [format_type(t_var(Key)), format_type(Val)], 3),
+	?debug3("Entering ~s :: ~s\n",
+		[format_type(t_var(Key)), format_type(Val)]),
 	Key;
       false ->
-	?debug("Entering ~s :: ~s\n", [format_type(Key), format_type(Val)], 3),
+	?debug3("Entering ~s :: ~s\n", [format_type(Key), format_type(Val)]),
 	t_var_name(Key)
     end,
   case t_is_any(Val) of
@@ -2359,9 +2368,8 @@ state__add_prop_constrs(Tree, #state{prop_types = PropTypes} = State) ->
 	  case erl_types:any_none(ArgTypes) of
 	    true -> not_called;
 	    false ->
-	      ?debug("Adding propagated constr: ~s for function ~w\n",
-		     [format_type(FunType), debug_lookup_name(mk_var(Tree))],
-		     3),
+	      ?debug3("Adding propagated constr: ~s for function ~w\n",
+		      [format_type(FunType), debug_lookup_name(mk_var(Tree))]),
 	      FunVar = mk_var(Tree),
 	      state__store_conj(FunVar, sub, FunType, State)
 	  end
@@ -2869,12 +2877,12 @@ lookup_record(Records, Tag, Arity) ->
 %% ============================================================================
 
 -ifdef(DEBUG_CONSTRAINTS).
--ifndef(DEBUG).
--define(DEBUG, true).
+-ifndef(DEBUG_LVL_1).
+-define(DEBUG_LVL_1).
 -endif.
 -endif.
 
--ifdef(DEBUG).
+-ifdef(DEBUG_LVL_1).
 format_type(#fun_var{deps = Deps, origin = Origin}) ->
   io_lib:format("Fun@L~p(~s)",
 		[Origin, lists:flatten([format_type(t_var(X))||X<-Deps])]);
