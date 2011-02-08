@@ -2811,8 +2811,11 @@ determine_mode(Type, Opaques) ->
 %%% ===========================================================================
 
 state__new(Callgraph, Tree, Plt, Module, Records, BehaviourTranslations) ->
-  Opaques = erl_types:module_builtin_opaques(Module) ++
+  TempOpaques = erl_types:module_builtin_opaques(Module) ++
     erl_types:t_opaque_from_records(Records),
+  ExpTypes = dialyzer_plt:get_exported_types(Plt),
+  Opaques =
+    [erl_types:t_solve_remote(O, ExpTypes, Records) || O <- TempOpaques],
   TreeMap = build_tree_map(Tree),
   Funs = dict:fetch_keys(TreeMap),
   FunTab = init_fun_tab(Funs, dict:new(), TreeMap, Callgraph, Plt, Opaques),
