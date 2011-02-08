@@ -1,0 +1,3 @@
+
+scalaris_intervals.erl:328: Overloaded contract has overlapping domains; such contracts are currently unsupported and are simply ignored
+scalaris_intervals.erl:341: Overloaded contract has overlapping domains; such contracts are currently unsupported and are simply ignored
