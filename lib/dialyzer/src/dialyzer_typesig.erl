@@ -720,8 +720,10 @@ state_store_intersections(Intersections, ArgVars, Dst, State) ->
   state__store_conj(Disjs, State).
 
 intersect_into_disj(Intersections, ArgVars, Dst) ->
-  Conjs = intersect_into_conj(Intersections, ArgVars, Dst),
-  mk_disj_constraint_list(Conjs).
+  case intersect_into_conj(Intersections, ArgVars, Dst) of
+    [] -> throw(error);
+    Conjs -> mk_disj_constraint_list(Conjs)
+  end.
 
 intersect_into_conj(Intersections, ArgVars, Dst) ->
   intersect_into_conj(Intersections, ArgVars, Dst, []).
@@ -2059,7 +2061,11 @@ remove_apply_constraints([#constraint_apply{id = Id, ret = Ret,
 	mk_constraint(t_any(), eq, t_any());
       false ->
 	Intersections = erl_types:t_get_intersections(Type),
-	intersect_into_disj(Intersections, Args, Ret)
+	try intersect_into_disj(Intersections, Args, Ret) of
+	  Result -> Result
+	catch
+	  throw:error -> mk_constraint(t_any(), eq, t_any())
+	end
     end,
   remove_apply_constraints(Tail, FunMap, State, [NewC| Acc]).
 
