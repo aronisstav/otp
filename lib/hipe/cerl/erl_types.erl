@@ -2160,9 +2160,10 @@ t_elements(?list(_, _, _) = T) -> [T];
 t_elements(?number(_, _) = T) ->
   case T of
     ?number(?any, ?unknown_qual) ->
-      [?float, ?integer(?any)];
+      [?float|t_elements(?integer(?any))];
     ?float -> [T];
-    ?integer(?any) -> [T];
+    ?integer(?any) -> [?integer_neg|t_elements(?integer_non_neg)];
+    ?integer_non_neg -> [t_integer(0), ?integer_pos];
     ?int_range(_, _) -> [T];
     ?int_set(Set) ->
       [t_integer(I) || I <- Set]
