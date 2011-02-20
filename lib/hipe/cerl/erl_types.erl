@@ -2344,30 +2344,27 @@ t_inf(?opaque(Set1) = T1, ?opaque(Set2) = T2, Mode) ->
     ?none ->
       case Mode =:= opaque of
 	true ->
-	  Struct1 = t_opaque_structure(T1),
-	  case t_inf(Struct1, T2) of
-	    ?none ->
-	      Struct2 = t_opaque_structure(T2),
-	      case t_inf(Struct2, T1) of
-		?none -> ?none;
-		_ -> T2
+	  Fun1 = fun(O1) -> inf_against_opaque(O1, T2) end,
+	  Inf1 = t_sup(lists:map(Fun1, ordsets:to_list(Set1))),
+	  case t_is_none(Inf1) of
+	    true ->
+	      Fun2 = fun(O2) -> inf_against_opaque(O2, T1) end,
+	      Inf2 = t_sup(lists:map(Fun2, ordsets:to_list(Set2))),
+	      case t_is_none(Inf2) of
+		true  -> ?none;
+		false -> T2
 	      end;
-	    _ -> T1
+	    false -> T1
 	  end;
 	false -> ?none
       end;
     NewSet -> ?opaque(NewSet)
   end;
-t_inf(?opaque(_) = T1, T2, opaque) ->
-  case t_inf(t_opaque_structure(T1), T2, structured) of
-    ?none -> ?none;
-    _Type -> T1
-  end;
+t_inf(?opaque(Elems), T2, opaque) ->
+  Fun = fun(T1) -> inf_against_opaque(T1,T2) end,
+  t_sup(lists:map(Fun, ordsets:to_list(Elems)));
 t_inf(T1, ?opaque(_) = T2, opaque) ->
-  case t_inf(T1, t_opaque_structure(T2), structured) of
-    ?none -> ?none;
-    _Type -> T2
-  end;
+  t_inf(T2, T1, opaque);
 t_inf(#c{}, #c{}, _) ->
   ?none.
 
@@ -2518,6 +2515,13 @@ findfirst(N1, N2, U1, B1, U2, B2) ->
       findfirst(N1+1, N2, U1, B1, U2, B2)
   end.
 
+inf_against_opaque(#opaque{} = T1, #c{} = T2) ->
+  Wrap = ?opaque(set_singleton(T1)),
+  case t_inf(t_opaque_structure(Wrap), T2, structured) of
+    ?none -> ?none;
+    _Type -> Wrap
+  end.
+  
 %%-----------------------------------------------------------------------------
 %% Substitution of variables
 %%

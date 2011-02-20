@@ -630,8 +630,8 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	  none -> {AnyArgs, t_any()}
 	end
     end,
-  ArgModeMask = [case lists:member(Arg, Opaques) orelse
-		   lists:member(CArg, Opaques) of
+  ArgModeMask = [case erl_types:t_unopaque(Arg, Opaques) =/= Arg orelse
+		   erl_types:t_unopaque(CArg, Opaques) =/= CArg of
                    true -> opaque;
                    false -> structured
                  end || {Arg, CArg} <- lists:zip(ArgTypes, CArgs)],
