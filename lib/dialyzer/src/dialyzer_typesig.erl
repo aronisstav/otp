@@ -1889,13 +1889,9 @@ solve_one_c(#constraint{lhs = Lhs, rhs = Rhs, op = Op}, Map, Opaques) ->
   end.
 
 solve_subtype(Type, Inf, Map, Opaques) ->
-  %% case cerl:is_literal(Type) of
-  %%   true ->
-  %%     case t_is_subtype(t_from_term(cerl:concrete(Type)), Inf) of
-  %%	true -> {ok, Map};
-  %%	false -> error
-  %%     end;
-  %%   false ->
+  case erl_types:t_has_var(Type) of
+    false -> {ok, Map};
+    true ->
       try t_unify(Type, Inf, Opaques) of
 	{_, List} -> {ok, enter_type_list(List, Map)}
       catch
@@ -1903,8 +1899,8 @@ solve_subtype(Type, Inf, Map, Opaques) ->
 	  ?debug("Mismatch between ~s and ~s\n",
 		 [format_type(_T1), format_type(_T2)]),
 	  error
-      end.
-  %% end.
+      end
+  end.
 
 %% ============================================================================
 %%
