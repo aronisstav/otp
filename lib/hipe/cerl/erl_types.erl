@@ -2156,7 +2156,8 @@ t_elements(?function(_, _) = T) -> [T];
 t_elements(?identifier(?any) = T) -> [T];
 t_elements(?identifier(IDs)) ->
   [?identifier([T]) || T <- IDs];
-t_elements(?list(_, _, _) = T) -> [T];
+t_elements(?nonempty_list(_, _) = T) -> [T];
+t_elements(?list(A, B, _)) -> [?nonempty_list(A,B), ?nil];
 t_elements(?number(_, _) = T) ->
   case T of
     ?number(?any, ?unknown_qual) ->
