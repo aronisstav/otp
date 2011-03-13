@@ -86,7 +86,8 @@ APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 ifeq ($(NATIVE_LIBS_ENABLED),yes)
 ERL_COMPILE_FLAGS += +native
 endif
-ERL_COMPILE_FLAGS += +warn_exported_vars +warn_unused_import +warn_untyped_record +warn_missing_spec
+ERL_COMPILE_FLAGS_WITHOUT_RECORD := $(ERL_COMPILE_FLAGS) +warn_exported_vars +warn_unused_import +warn_missing_spec +warnings_as_errors
+ERL_COMPILE_FLAGS := $(ERL_COMPILE_FLAGS_WITHOUT_RECORD) +warn_untyped_record 
 
 # ----------------------------------------------------
 # Targets
@@ -114,7 +115,7 @@ $(EBIN)/dialyzer_gui.$(EMULATOR): dialyzer_gui.erl ../vsn.mk
 	erlc -W  $(ERL_COMPILE_FLAGS) -DVSN="\"v$(VSN)\"" -o$(EBIN) dialyzer_gui.erl
 
 $(EBIN)/dialyzer_gui_wx.$(EMULATOR): dialyzer_gui_wx.erl ../vsn.mk
-	erlc -W  $(ERL_COMPILE_FLAGS) -DVSN="\"v$(VSN)\"" -o$(EBIN) dialyzer_gui_wx.erl
+	erlc -W  $(ERL_COMPILE_FLAGS_WITHOUT_RECORD) -DVSN="\"v$(VSN)\"" -o$(EBIN) dialyzer_gui_wx.erl
 
 $(APP_TARGET): $(APP_SRC) ../vsn.mk
 	sed -e 's;%VSN%;$(VSN);' $< > $@
