@@ -100,6 +100,7 @@ docs:
 clean:
 	rm -f $(TARGET_FILES)
 	rm -f core
+	rm -f $(EBIN)/*.Pbeam
 
 # ----------------------------------------------------
 # Special Build Targets
@@ -123,29 +124,14 @@ $(APP_TARGET): $(APP_SRC) ../vsn.mk
 $(APPUP_TARGET): $(APPUP_SRC) ../vsn.mk
 	sed -e 's;%VSN%;$(VSN);' $< > $@
 
-# ---------------------------------------------------------------------
-# dependencies -- I wish they were somehow automatically generated
-# ---------------------------------------------------------------------
+# ------------
+# dependencies
+# ------------
 
-$(EBIN)/dialyzer.beam: dialyzer.hrl
-$(EBIN)/dialyzer_analysis_callgraph.beam: dialyzer.hrl
-$(EBIN)/dialyzer_callgraph.beam: dialyzer.hrl
-$(EBIN)/dialyzer_behaviours.beam: dialyzer.hrl
-$(EBIN)/dialyzer_cl.beam: dialyzer.hrl ../../kernel/include/file.hrl
-$(EBIN)/dialyzer_cl_parse.beam: dialyzer.hrl
-$(EBIN)/dialyzer_codeserver.beam: dialyzer.hrl
-$(EBIN)/dialyzer_contracts.beam: dialyzer.hrl
-$(EBIN)/dialyzer_dataflow.beam: dialyzer.hrl
-$(EBIN)/dialyzer_dep.beam: dialyzer.hrl
-$(EBIN)/dialyzer_explanation.beam: dialyzer.hrl
-$(EBIN)/dialyzer_gui.beam: dialyzer.hrl
-$(EBIN)/dialyzer_gui_wx.beam: dialyzer.hrl dialyzer_gui_wx.hrl
-$(EBIN)/dialyzer_options.beam: dialyzer.hrl
-$(EBIN)/dialyzer_plt.beam: dialyzer.hrl
-$(EBIN)/dialyzer_races.beam: dialyzer.hrl
-$(EBIN)/dialyzer_succ_typings.beam: dialyzer.hrl
-$(EBIN)/dialyzer_typesig.beam: dialyzer.hrl
-$(EBIN)/dialyzer_utils.beam: dialyzer.hrl
+$(EBIN)/%.Pbeam: %.erl
+	erlc -MD -o$(EBIN) $<
+
+-include $(MODULES:%=$(EBIN)/%.Pbeam)
 
 # ----------------------------------------------------
 # Release Target
