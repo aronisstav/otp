@@ -1,0 +1,5 @@
+
+stack_use.erl:10: Guard test is_list(X::stack:stack()) breaks the opaqueness of its argument
+stack_use.erl:12: Guard test length(X::stack:stack()) breaks the opaqueness of its argument
+stack_use.erl:13: Guard test length(X::stack:stack()) breaks the opaqueness of its argument
+stack_use.erl:6: The call erlang:length(stack:stack()) contains an opaque term as 1st argument when a structured term of type [any()] is expected
