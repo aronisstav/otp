@@ -1,0 +1,5 @@
+
+self_recursive.erl:5: Function test0/0 has no local return
+self_recursive.erl:6: The pattern [_] can never match the type []
+self_recursive.erl:8: Function test1/0 has no local return
+self_recursive.erl:9: The pattern [] can never match the type [any(),...]

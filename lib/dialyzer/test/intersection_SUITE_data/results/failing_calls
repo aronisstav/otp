@@ -1,0 +1,7 @@
+
+failing_calls.erl:11: Function test3/0 has no local return
+failing_calls.erl:12: The call failing_calls:bar('c','c') will never return since it differs in the 1st argument from the success typing arguments: ('a','c') or ('b','c')
+failing_calls.erl:5: Function test1/0 has no local return
+failing_calls.erl:6: The call failing_calls:foo('a','c') will never return since it differs in the 1st and/or 2nd argument from the success typing arguments: ('a','d') or ('b','c')
+failing_calls.erl:8: Function test2/0 has no local return
+failing_calls.erl:9: The call failing_calls:foo('a','c','e') will never return since it differs in the 1st, 2nd and/or 3rd argument from the success typing arguments: ('a','c','f') or ('a','d','e') or ('b','c','e')

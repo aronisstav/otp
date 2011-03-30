@@ -1,0 +1,4 @@
+
+scc_powerful_inference.erl:10: The test 'foo' == 'bar' can never evaluate to 'true'
+scc_powerful_inference.erl:11: The test 'foo' == 'bar' can never evaluate to 'true'
+scc_powerful_inference.erl:9: The test 'bar' == 'foo' can never evaluate to 'true'

@@ -6,7 +6,9 @@
 
 -export([parse/1]).
 
--spec parse(string()) -> proplists:proplist().
+-type proplist() :: [{atom(), any()}].
+
+-spec parse(string()) -> proplist().
 parse(FileName) ->
   {ok, IoDevice} = file:open(FileName, [read, binary, {encoding, utf8}]),
   do_parse(IoDevice, []).

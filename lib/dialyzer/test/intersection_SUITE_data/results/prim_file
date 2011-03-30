@@ -1,0 +1,5 @@
+
+prim_file.erl:1057: Cons will produce an improper list since its 2nd argument is nonempty_improper_list(<<_:192>>,<<>>)
+prim_file.erl:184: The variable Other can never match since previous clauses completely covered the type {'error',_}
+prim_file.erl:494: The pattern {'ok', Port} can never match the type {'error',_}
+prim_file.erl:522: The pattern {'ok', Handle} can never match the type {'error',_}

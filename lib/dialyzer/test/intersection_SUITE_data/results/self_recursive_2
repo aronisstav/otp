@@ -1,0 +1,3 @@
+
+self_recursive_2.erl:5: Function test/0 has no local return
+self_recursive_2.erl:6: The pattern 12 can never match the type 8

@@ -1,0 +1,3 @@
+
+clauses1.erl:8: Function bar/0 has no local return
+clauses1.erl:9: The pattern 2 can never match the type 1

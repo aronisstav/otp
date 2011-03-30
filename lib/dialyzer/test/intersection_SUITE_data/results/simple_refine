@@ -1,0 +1,5 @@
+
+simple_refine.erl:5: Function test1/0 has no local return
+simple_refine.erl:6: The pattern 'a' can never match the type 'b'
+simple_refine.erl:8: Function test2/0 has no local return
+simple_refine.erl:9: The pattern 'b' can never match the type 'a'

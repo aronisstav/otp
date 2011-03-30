@@ -1,4 +1,5 @@
 
+spvcOrig.erl:1152: The pattern <'release_comp_nu_enabled', Spvc, [HcId, Release_complete]> can never match the type <'connect_nu' | 'destroy' | 'not_in_service' | 'release_comp_nu_disabled' | 'release_nu_disabled' | 'release_nu_enabled',[] | #spvcObj{},'undefined' | maybe_improper_list()>
 spvcOrig.erl:1238: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVcc',25) can never succeed
 spvcOrig.erl:1241: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVpc',20) can never succeed
 spvcOrig.erl:1244: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVpcPerm',12) can never succeed
@@ -171,6 +172,7 @@ spvcOrig.erl:760: The pattern {If_Value, _, _, _} can never match the type [] | 
 spvcOrig.erl:762: The pattern {If_Value, _, _} can never match the type [] | #spvcObj{}
 spvcOrig.erl:764: The pattern {If_Value, _} can never match the type [] | #spvcObj{}
 spvcOrig.erl:766: The pattern [If_Value | _] can never match the type [] | #spvcObj{}
+spvcOrig.erl:780: The pattern 'enabled' can never match the type 'disabled'
 spvcOrig.erl:802: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVcc',25) can never succeed
 spvcOrig.erl:805: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVpc',20) can never succeed
 spvcOrig.erl:808: Guard test is_record(Spvc::[] | #spvcObj{},'spvcVpcPerm',12) can never succeed
