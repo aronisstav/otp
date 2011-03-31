@@ -154,9 +154,11 @@ process_contract_remote_types(CodeServer) ->
   RecordDict = dialyzer_codeserver:get_records(CodeServer),
   ContractFun =
     fun({_M, _F, _A}, {File, #tmp_contract{contract_funs = CFuns, forms = Forms}}) ->
-	NewCs = [CFun(ExpTypes, RecordDict) || CFun <- CFuns],
+	{NewCs, Rets} =
+	  lists:unzip([CFun(ExpTypes, RecordDict) || CFun <- CFuns]),
 	Args = general_domain(NewCs),
-	{File, #contract{contracts = NewCs, args = Args, forms = Forms}}
+	{File,
+	 #contract{contracts = NewCs, args = Args, rets = Rets, forms = Forms}}
     end,
   ModuleFun =
     fun(_ModuleName, ContractDict) ->
@@ -199,7 +201,7 @@ check_contracts(Contracts, Callgraph, FunTypes) ->
 %% Checks all components of a contract
 -spec check_contract(#contract{}, erl_types:erl_type()) -> 'ok' | {'error', term()}.
 
-check_contract(#contract{contracts = Contracts}, SuccType) ->
+check_contract(#contract{contracts = Contracts, rets = Rets}, SuccType) ->
   try
     Contracts1 = [{Contract, insert_constraints(Constraints, dict:new())}
 		  || {Contract, Constraints} <- Contracts],
@@ -214,7 +216,7 @@ check_contract(#contract{contracts = Contracts}, SuccType) ->
 		   || Contract <- Contracts2],
 	case check_contract_inf_list(InfList, SuccType) of
 	  {error, _} = Invalid -> Invalid;
-	  ok -> check_extraneous(Contracts2, SuccType)
+	  ok -> check_extraneous(Rets, SuccType)
 	end
     end
   catch
@@ -258,14 +260,14 @@ check_contract_inf_list([], _SuccType) ->
   {error, invalid_contract}.
 
 check_extraneous([], _SuccType) -> ok;
-check_extraneous([C|Cs], SuccType) ->
-  case check_extraneous_1(C, SuccType) of
-    ok -> check_extraneous(Cs, SuccType);
+check_extraneous([Ret|Rets], SuccType) ->
+  case check_extraneous_1(Ret, SuccType) of
+    ok -> check_extraneous(Rets, SuccType);
     Error -> Error
   end.
 
-check_extraneous_1(Contract, SuccType) ->
-  CRngs = erl_types:t_elements(erl_types:t_fun_range(Contract)),
+check_extraneous_1(Ret, SuccType) ->
+  CRngs = erl_types:t_elements(Ret),
   STRng = erl_types:t_fun_range(SuccType),
   ?debug("CR = ~p\nSR = ~p\n", [CRngs, STRng]),
   case [CR || CR <- CRngs, erl_types:t_is_none(erl_types:t_inf(CR, STRng, opaque))] of
@@ -361,17 +363,17 @@ insert_constraints([], Dict) -> Dict.
 
 -spec store_tmp_contract(mfa(), file_line(), [_], dict(), dict()) -> dict().
 
-store_tmp_contract(MFA, FileLine, TypeSpec, SpecDict, RecordsDict) ->
+store_tmp_contract({M,_,_} = MFA, FileLine, TypeSpec, SpecDict, RecordsDict) ->
   %% io:format("contract from form: ~p\n", [TypeSpec]),
-  TmpContract = contract_from_form(TypeSpec, RecordsDict, FileLine),
+  TmpContract = contract_from_form(M, TypeSpec, RecordsDict, FileLine),
   %% io:format("contract: ~p\n", [Contract]),
   dict:store(MFA, {FileLine, TmpContract}, SpecDict).
 
-contract_from_form(Forms, RecDict, FileLine) ->
-  {CFuns, Forms1} = contract_from_form(Forms, RecDict, FileLine, [], []),
+contract_from_form(M, Forms, RecDict, FileLine) ->
+  {CFuns, Forms1} = contract_from_form(M, Forms, RecDict, FileLine, [], []),
   #tmp_contract{contract_funs = CFuns, forms = Forms1}.
 
-contract_from_form([{type, _, 'fun', [_, _]} = Form | Left], RecDict,
+contract_from_form(M, [{type, _, 'fun', [_, _]} = Form | Left], RecDict,
 		   FileLine, TypeAcc, FormAcc) ->
   TypeFun =
     fun(ExpTypes, AllRecords) ->
@@ -386,13 +388,14 @@ contract_from_form([{type, _, 'fun', [_, _]} = Form | Left], RecDict,
 	      throw({error, NewMsg})
 	  end,
 	NewType = erl_types:t_solve_remote(Type, ExpTypes, AllRecords),
-	{NewType, []}
+	Ret = contract_return(M, Type, ExpTypes, AllRecords),
+	{{NewType, []}, Ret}
     end,
   NewTypeAcc = [TypeFun | TypeAcc],
   NewFormAcc = [{Form, []} | FormAcc],
-  contract_from_form(Left, RecDict, FileLine, NewTypeAcc, NewFormAcc);
-contract_from_form([{type, _L1, bounded_fun,
-		     [{type, _L2, 'fun', [_, _]} = Form, Constr]}| Left],
+  contract_from_form(M, Left, RecDict, FileLine, NewTypeAcc, NewFormAcc);
+contract_from_form(M, [{type, _L1, bounded_fun,
+			  [{type, _L2, 'fun', [_, _]} = Form, Constr]}| Left],
 		   RecDict, FileLine, TypeAcc, FormAcc) ->
   TypeFun =
     fun(ExpTypes, AllRecords) ->
@@ -401,13 +404,29 @@ contract_from_form([{type, _L1, bounded_fun,
 	VarDict = insert_constraints(Constr1, dict:new()),
 	Type = erl_types:t_from_form(Form, RecDict, VarDict),
 	NewType = erl_types:t_solve_remote(Type, ExpTypes, AllRecords),
-	{NewType, Constr1}
+	Ret = contract_return(M, Type, ExpTypes, AllRecords),
+	{{NewType, Constr1}, Ret}
     end,
   NewTypeAcc = [TypeFun | TypeAcc],
   NewFormAcc = [{Form, Constr} | FormAcc],
-  contract_from_form(Left, RecDict, FileLine, NewTypeAcc, NewFormAcc);
-contract_from_form([], _RecDict, _FileLine, TypeAcc, FormAcc) ->
+  contract_from_form(M, Left, RecDict, FileLine, NewTypeAcc, NewFormAcc);
+contract_from_form(_M, [], _RecDict, _FileLine, TypeAcc, FormAcc) ->
   {lists:reverse(TypeAcc), lists:reverse(FormAcc)}.
+
+contract_return(M, Type, ExpTypes, AllRecords) ->
+  Ret = erl_types:t_fun_range(Type),
+  ExpTypes0 = sets:filter(fun({M1,_,_}) -> M1 =:= M end, ExpTypes),
+  %% t_solve_remote leaves a message to itself for any unknown types in
+  %% may encounter. We don't want these messages here, hence we spawn a
+  %% new process to receive and forget them.
+  Self = self(),
+  Pid = spawn(fun() ->
+		  Self ! {self(),
+			  erl_types:t_solve_remote(Ret, ExpTypes0, AllRecords)}
+	      end),
+  receive
+    {Pid, Res} -> Res
+  end.
 
 constraint_from_form({type, _, constraint, [{atom, _, is_subtype},
 					    [Type1, Type2]]}, RecDict,

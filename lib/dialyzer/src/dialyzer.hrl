@@ -148,6 +148,7 @@
 		  check_plt       = true           :: boolean()}).
 
 -record(contract, {contracts	  = []		   :: [contract_pair()],
+		   rets           = []             :: [erl_types:erl_type()],
 		   args		  = []		   :: [erl_types:erl_type()],
 		   forms	  = []		   :: [{_, _}]}).
 
