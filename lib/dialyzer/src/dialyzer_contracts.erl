@@ -270,7 +270,10 @@ check_extraneous_1(Ret, SuccType) ->
   CRngs = erl_types:t_elements(Ret),
   STRng = erl_types:t_fun_range(SuccType),
   ?debug("CR = ~p\nSR = ~p\n", [CRngs, STRng]),
-  case [CR || CR <- CRngs, erl_types:t_is_none(erl_types:t_inf(CR, STRng, opaque))] of
+  USTRng = erl_types:t_unopaque(STRng),
+  case [CR || CR <- CRngs,
+	      erl_types:t_is_none(erl_types:t_inf(erl_types:t_unopaque(CR),
+						  USTRng))] of
     [] -> ok;
     CRs -> {error, {extra_range, erl_types:t_sup(CRs), STRng}}
   end.
