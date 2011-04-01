@@ -391,7 +391,7 @@ contract_from_form(M, [{type, _, 'fun', [_, _]} = Form | Left], RecDict,
 	      throw({error, NewMsg})
 	  end,
 	NewType = erl_types:t_solve_remote(Type, ExpTypes, AllRecords),
-	Ret = contract_return(M, Type, ExpTypes, AllRecords),
+	Ret = contract_return(M, Type, NewType, ExpTypes, AllRecords),
 	{{NewType, []}, Ret}
     end,
   NewTypeAcc = [TypeFun | TypeAcc],
@@ -407,7 +407,7 @@ contract_from_form(M, [{type, _L1, bounded_fun,
 	VarDict = insert_constraints(Constr1, dict:new()),
 	Type = erl_types:t_from_form(Form, RecDict, VarDict),
 	NewType = erl_types:t_solve_remote(Type, ExpTypes, AllRecords),
-	Ret = contract_return(M, Type, ExpTypes, AllRecords),
+	Ret = contract_return(M, Type, NewType, ExpTypes, AllRecords),
 	{{NewType, Constr1}, Ret}
     end,
   NewTypeAcc = [TypeFun | TypeAcc],
@@ -416,19 +416,24 @@ contract_from_form(M, [{type, _L1, bounded_fun,
 contract_from_form(_M, [], _RecDict, _FileLine, TypeAcc, FormAcc) ->
   {lists:reverse(TypeAcc), lists:reverse(FormAcc)}.
 
-contract_return(M, Type, ExpTypes, AllRecords) ->
-  Ret = erl_types:t_fun_range(Type),
-  ExpTypes0 = sets:filter(fun({M1,_,_}) -> M1 =:= M end, ExpTypes),
-  %% t_solve_remote leaves a message to itself for any unknown types in
-  %% may encounter. We don't want these messages here, hence we spawn a
-  %% new process to receive and forget them.
-  Self = self(),
-  Pid = spawn(fun() ->
-		  Self ! {self(),
-			  erl_types:t_solve_remote(Ret, ExpTypes0, AllRecords)}
-	      end),
-  receive
-    {Pid, Res} -> Res
+contract_return(M, Type, NewType, ExpTypes, AllRecords) ->
+  OrigRet = erl_types:t_fun_range(NewType),
+  case erl_types:t_is_unit(OrigRet) of
+    true -> OrigRet;
+    false ->
+      Ret = erl_types:t_fun_range(Type),
+      ExpTypes0 = sets:filter(fun({M1,_,_}) -> M1 =:= M end, ExpTypes),
+      %% t_solve_remote leaves a message to itself for any unknown types in
+      %% may encounter. We don't want these messages here, hence we spawn a
+      %% new process to receive and forget them.
+      Self = self(),
+      Pid = spawn(fun() ->
+		      Self ! {self(),
+			      erl_types:t_solve_remote(Ret, ExpTypes0, AllRecords)}
+		  end),
+      receive
+	{Pid, Res} -> Res
+      end
   end.
 
 constraint_from_form({type, _, constraint, [{atom, _, is_subtype},
