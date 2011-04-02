@@ -1,7 +1,7 @@
 %% This suite is the only hand made and simply
 %% checks if we can build a plt.
 
--module(plt_tests_SUITE).
+-module(plt_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include("dialyzer_test_constants.hrl").
