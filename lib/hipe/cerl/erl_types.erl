@@ -2340,7 +2340,7 @@ t_inf(T, ?union(U2), Mode) ->
   inf_union(U1, U2, Mode);
 %% and as a result, the cases for ?opaque should appear *after* ?union
 t_inf(?opaque(Set1) = T1, ?opaque(Set2) = T2, Mode) ->
-  case set_intersection(Set1, Set2) of
+  case opaque_intersection(Set1, Set2) of
     ?none ->
       case Mode =:= opaque of
 	true ->
@@ -2514,6 +2514,29 @@ findfirst(N1, N2, U1, B1, U2, B2) ->
      Val1 < Val2 ->
       findfirst(N1+1, N2, U1, B1, U2, B2)
   end.
+
+opaque_intersection(Set1, Set2) ->
+  case set_intersection(Set1, Set2) of
+    ?none ->
+      case opaques_with_struct_diffs(Set1, Set2) of
+	[] -> ?none;
+	Res -> Res
+      end;
+    NewSet -> NewSet
+  end.
+
+opaques_with_struct_diffs(Set1, Set2) ->
+  L1 = ordsets:to_list(Set1),
+  L2 = ordsets:to_list(Set2),
+  [#opaque{mod = M1, name = N1, args = A1,
+	   struct = case t_is_subtype(Struct1, Struct2) of
+		      true -> Struct1;
+		      false -> Struct2
+		    end
+	  }
+   || #opaque{mod = M1, name = N1, args = A1, struct = Struct1} <- L1,
+      #opaque{mod = M2, name = N2, args = A2, struct = Struct2} <- L2,
+      M1 =:= M2, N1 =:= N2, A1 =:= A2].
 
 inf_against_opaque(#opaque{} = T1, #c{} = T2) ->
   Wrap = ?opaque(set_singleton(T1)),
