@@ -138,6 +138,7 @@
 	 t_is_remote/1,
 	 t_is_string/1,
 	 t_is_subtype/2,
+	 t_is_subtype/3,
 	 t_is_tuple/1,
 	 t_is_unit/1,
 	 t_is_var/1,
@@ -2457,24 +2458,20 @@ inf_tuples_in_sets([], _, Acc, _Mode) -> lists:reverse(Acc);
 inf_tuples_in_sets(_, [], Acc, _Mode) -> lists:reverse(Acc).
 
 inf_union(U1, U2, opaque) ->
-%%---------------------------------------------------------------------
-%%                          Under Testing
-%%----------------------------------------------------------------------
-%%   OpaqueFun = 
-%%     fun(Union1, Union2) ->
-%% 	[_,_,_,_,_,_,_,_,Opaque,_] = Union1,
-%% 	[A,B,F,I,L,N,T,M,_,_R] = Union2,
-%% 	List = [A,B,F,I,L,N,T,M],
-%%         case [T || T <- List, t_inf(T, Opaque, opaque) =/= ?none] of
-%% 	  [] -> ?none;
-%% 	  _  -> Opaque
-%% 	end
-%%     end,
-%%   O1 = OpaqueFun(U1, U2),
-%%   O2 = OpaqueFun(U2, U1),
-%%   Union = inf_union(U1, U2, 0, [], opaque),
-%%   t_sup([O1, O2, Union]);
-  inf_union(U1, U2, 0, [], opaque);
+  OpaqueFun = 
+    fun(Union1, Union2) ->
+	[_,_,_,_,_,_,_,_,Opaque,_] = Union1,
+	[A,B,F,I,L,N,T,M,_,_R] = Union2,
+	List = [A,B,F,I,L,N,T,M],
+        case [E || E <- List, t_inf(E, Opaque, opaque) =/= ?none] of
+	  [] -> ?none;
+	  _  -> Opaque
+	end
+    end,
+  O1 = OpaqueFun(U1, U2),
+  O2 = OpaqueFun(U2, U1),
+  Union = inf_union(U1, U2, 0, [], opaque),
+  t_sup([O1, O2, Union]);
 inf_union(U1, U2, OtherMode) ->
   inf_union(U1, U2, 0, [], OtherMode).
 
@@ -3063,10 +3060,15 @@ subtract_bin(?bitstr(U1, B1), ?bitstr(U2, B2)) ->
 t_is_equal(T, T)  -> true;
 t_is_equal(_, _) -> false.
 
--spec t_is_subtype(erl_type(), erl_type()) -> boolean().
+-spec t_is_subtype(erl_type(), erl_type(), t_inf_mode()) -> boolean().
 
 t_is_subtype(T1, T2) ->
-  Inf = t_inf(T1, T2),
+  t_is_subtype(T1, T2, structured).
+
+-spec t_is_subtype(erl_type(), erl_type()) -> boolean().
+
+t_is_subtype(T1, T2, Mode) ->
+  Inf = t_inf(T1, T2, Mode),
   t_is_equal(T1, Inf).
 
 -spec t_is_instance(erl_type(), erl_type()) -> boolean().
