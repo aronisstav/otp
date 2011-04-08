@@ -3081,11 +3081,16 @@ t_unopaque(T) ->
 
 -spec t_unopaque(erl_type(), 'universe' | [erl_type()]) -> erl_type().
 
-t_unopaque(?opaque(_) = T, Opaques) ->
-  case Opaques =:= universe orelse lists:member(T, Opaques) of
-    true -> t_unopaque(t_opaque_structure(T), Opaques);
-    false -> T  % XXX: needs revision for parametric opaque data types
-  end;
+t_unopaque(?opaque(Set), Opaques) ->
+  ElemsUnop =
+    [begin
+       T = ?opaque(set_singleton(E)),
+       case Opaques =:= universe orelse lists:member(T, Opaques) of
+	 true -> t_unopaque(t_opaque_structure(T), Opaques);
+	 false -> T  % XXX: needs revision for parametric opaque data types
+       end
+     end || E <- ordsets:to_list(Set)],
+  t_sup(ElemsUnop);
 t_unopaque(?list(ElemT, Termination, Sz), Opaques) ->
   ?list(t_unopaque(ElemT, Opaques), Termination, Sz);
 t_unopaque(?tuple(?any, _, _) = T, _) -> T;
