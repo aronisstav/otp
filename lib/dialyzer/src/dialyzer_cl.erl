@@ -186,9 +186,10 @@ init_opts_for_remove(Opts) ->
 plt_common(#options{init_plts = [InitPlt]} = Opts, RemoveFiles, AddFiles) ->
   case check_plt(Opts, RemoveFiles, AddFiles) of
     ok ->
-      case Opts#options.output_plt of
-	none -> ok;
-	OutPlt ->
+      OutPlt = Opts#options.output_plt,
+      case OutPlt =:= InitPlt of
+	true -> ok;
+	false ->
 	  {ok, Binary} = file:read_file(InitPlt),
 	  ok = file:write_file(OutPlt, Binary)
       end,
