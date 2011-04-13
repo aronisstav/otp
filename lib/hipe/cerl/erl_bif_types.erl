@@ -37,6 +37,7 @@
 
 -import(erl_types, [number_max/1,
 		    number_min/1,
+		    any_none_or_unit/1,
 		    t_any/0,
 		    t_arity/0,
 		    t_atom/0,
@@ -66,6 +67,7 @@
 		    t_fun_range/1,
 		    t_identifier/0,
 		    t_inf/2,
+		    t_inf_lists/2,
 		    t_integer/0,
 		    t_integer/1,
 		    t_non_neg_fixnum/0,
@@ -2787,38 +2789,26 @@ type(M, F, A, Xs) when is_atom(M), is_atom(F),
 
 strict(Xs, Ts, F) ->
   %% io:format("inf lists arg~n1:~p~n2:~p ~n", [Xs, Ts]),
-  Xs1 = inf_lists(Xs, Ts),
+  Xs1 = t_inf_lists(Xs, Ts),
   %% io:format("inf lists return ~p ~n", [Xs1]),
-  case any_is_none_or_unit(Xs1) of
+  case any_none_or_unit(Xs1) of
     true -> t_none();
     false -> F(Xs1)
   end.
 
 strict(Xs, X) ->
-  case any_is_none_or_unit(Xs) of
+  case any_none_or_unit(Xs) of
     true -> t_none();
     false -> X
   end.
 
-inf_lists([X | Xs], [T | Ts]) ->
-  [t_inf(X, T) | inf_lists(Xs, Ts)];
-inf_lists([], []) ->
-  [].
-
-any_list(N) -> any_list(N, t_any()).
-
-any_list(N, A) when N > 0 ->
-  [A | any_list(N - 1, A)];
-any_list(0, _) ->
-  [].
+any_list(N) ->
+  lists:duplicate(N, t_any()).
 
 list_replace(N, E, [X | Xs]) when N > 1 ->
   [X | list_replace(N - 1, E, Xs)];
 list_replace(1, E, [_X | Xs]) ->
   [E | Xs].
-
-any_is_none_or_unit(Ts) ->
-  lists:any(fun erl_types:t_is_none_or_unit/1, Ts).
 
 all_is_none(Ts) ->
   lists:all(fun erl_types:t_is_none/1, Ts).
@@ -4420,7 +4410,7 @@ check_fun_application(Fun, Args) ->
 	    false -> ok
 	  end;
 	FunDom when length(FunDom) =:= length(Args) ->
-	  case any_is_none_or_unit(inf_lists(FunDom, Args)) of
+	  case any_none_or_unit(t_inf_lists(FunDom, Args)) of
 	    true -> error;
 	    false ->
 	      case t_is_none_or_unit(t_fun_range(Fun)) of
@@ -4563,11 +4553,6 @@ t_code_load_error_rsn() ->	% also used in erlang:load_module/2
 	 t_atom('native_code'),
 	 t_atom('on_load'),
 	 t_atom('sticky_directory')]).	% only for the 'code' functions
-
-t_code_loaded_fname_or_status() ->
-  t_sup([t_string(), % filename
-	 t_atom('preloaded'),
-	 t_atom('cover_compiled')]).
 
 %% =====================================================================
 %% These are used for the built-in functions of 'erlang'
