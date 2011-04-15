@@ -25,6 +25,22 @@
 %% re:run/2
 %% re:run/3
 
+%%-----------------------------------------------------------------------------
+
+-export_type([regexp/0, re/0]).
+
+-type regexp() :: iodata() | list().    %% XXX: list() should read charlist().
+
+%% Declarations similar to the following two also appear in
+%% erl_types.erl so make sure they stay in sync!
+-opaque mp() :: {'re_pattern', integer(), integer(), binary()}.
+
+-type re()   :: mp() | regexp().
+
+%%-----------------------------------------------------------------------------
+
+-spec split(regexp(), re()) -> [regexp()].
+
 split(Subject,RE) ->
     split(Subject,RE,[]).
 
