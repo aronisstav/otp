@@ -123,6 +123,7 @@
 		    t_sup/2,
 		    t_ets_tid/0,
 		    t_re_mp/0,
+		    t_re_re/0,
 		    t_timeout/0,
 		    t_tuple/0,
 		    t_tuple/1,
@@ -4967,12 +4968,8 @@ t_io_format_string() ->
   t_sup([t_atom(), t_list(), t_binary()]).
 
 %% =====================================================================
-%% These are used for the built-in functions of 're'; the functions
-%% whose last name component starts with a capital letter are types
+%% These are used for the built-in functions of 're'
 %% =====================================================================
-
-t_re_re() ->
-  t_sup([t_re_mp(), t_iodata(), t_charlist()]).
 
 t_re_compile_option() ->
   t_sup([t_atoms(['unicode', 'anchored', 'caseless', 'dollar_endonly',

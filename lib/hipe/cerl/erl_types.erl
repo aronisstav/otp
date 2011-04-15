@@ -188,6 +188,7 @@
 	 t_sup/2,
 	 t_ets_tid/0,
 	 t_re_mp/0,
+	 t_re_re/0,
 	 t_timeout/0,
 	 t_to_string/1,
 	 t_to_string/2,
@@ -1651,6 +1652,11 @@ t_re_mp() ->
   MP = t_tuple([t_atom('re_pattern'), t_integer(), t_integer(), t_binary()]),
   t_opaque(re, mp, [], MP).
 
+-spec t_re_re() -> erl_type().
+
+t_re_re() ->
+  t_sup([t_re_mp(), t_iodata(), t_charlist()]).
+
 -spec all_opaque_builtins() -> [erl_type(),...].
 
 all_opaque_builtins() ->
@@ -1667,6 +1673,7 @@ is_opaque_builtin(gb_trees, gb_tree) -> true;
 is_opaque_builtin(queue, queue) -> true;
 is_opaque_builtin(sets, set) -> true;
 is_opaque_builtin(ets, tid) -> true;
+is_opaque_builtin(re, mp) -> true;
 is_opaque_builtin(_, _) -> false.
 
 %%------------------------------------
