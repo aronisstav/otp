@@ -631,10 +631,12 @@ handle_apply_or_call([{TypeOfApply, {Fun, Sig, Contr, LocalRet}}|Left],
 	end
     end,
   ArgModeMask = [case erl_types:t_unopaque(Arg, Opaques) =/= Arg orelse
+		   erl_types:t_unopaque(BifArg, Opaques) =/= BifArg orelse
 		   erl_types:t_unopaque(CArg, Opaques) =/= CArg of
                    true -> opaque;
                    false -> structured
-                 end || {Arg, CArg} <- lists:zip(ArgTypes, CArgs)],
+                 end || {Arg, CArg, BifArg} <- 
+			  lists:zip3(ArgTypes, CArgs, BifArgs)],
   NewArgsSig = t_inf_lists_masked(SigArgs, ArgTypes, ArgModeMask),
   NewArgsContract = t_inf_lists_masked(CArgs, ArgTypes, ArgModeMask),
   NewArgsBif = t_inf_lists_masked(BifArgs, ArgTypes, ArgModeMask),
