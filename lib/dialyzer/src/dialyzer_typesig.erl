@@ -1556,11 +1556,12 @@ get_bif_constr({M, F, A} = _BIF, Dst, Args, State) ->
 		    false -> T
 		  end
 	end,
-      ReturnType = ?mk_fun_var(fun(Map) ->
-				  TmpArgTypes0 = lookup_type_list(Args, Map),
-				  TmpArgTypes = [UnopaqueFun(T) || T<- TmpArgTypes0],
-				  erl_bif_types:type(M, F, A, TmpArgTypes)
-			      end, Args),
+      ReturnType =
+	?mk_fun_var(fun(Map) ->
+			TmpArgTypes0 = lookup_type_list(Args, Map),
+			TmpArgTypes = [UnopaqueFun(T) || T<- TmpArgTypes0],
+			erl_bif_types:type(M, F, A, {TmpArgTypes, Opaques})
+		    end, Args),
       case erl_bif_types:is_known(M, F, A) of
 	false ->
 	  case t_is_any(GenType) of

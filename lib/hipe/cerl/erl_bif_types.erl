@@ -2779,6 +2779,9 @@ type(unicode, bin_is_7bit, 1, Xs) ->
   strict(arg_types(unicode, bin_is_7bit, 1), Xs, fun (_) -> t_boolean() end);
 
 %%-----------------------------------------------------------------------------
+type(M, F, A, {Xs, _Opaques}) when is_atom(M), is_atom(F),
+		       is_integer(A), 0 =< A, A =< 255 ->
+  type(M, F, A, Xs);
 type(M, F, A, Xs) when is_atom(M), is_atom(F),
 		       is_integer(A), 0 =< A, A =< 255 ->
   strict(Xs, t_any()).  % safe approximation for all functions.
@@ -2788,7 +2791,17 @@ type(M, F, A, Xs) when is_atom(M), is_atom(F),
 %% Auxiliary functions
 %%-----------------------------------------------------------------------------
 
+strict(Xs, {Ts, Opaques}, F) ->
+  strict(Xs, Ts, F, Opaques);
 strict(Xs, Ts, F) ->
+  strict(Xs, Ts, F, []).
+
+strict(Xs0, Ts, F, Opaques) ->
+  Xs = 
+    case Opaques of
+      [] -> Xs0;
+       _ -> [erl_types:t_unopaque(X, Opaques) || X <- Xs0]
+    end,
   %% io:format("inf lists arg~n1:~p~n2:~p ~n", [Xs, Ts]),
   Xs1 = t_inf_lists(Xs, Ts),
   %% io:format("inf lists return ~p ~n", [Xs1]),
@@ -2797,6 +2810,8 @@ strict(Xs, Ts, F) ->
     false -> F(Xs1)
   end.
 
+strict({Xs, _}, X) ->
+  strict(Xs, X);
 strict(Xs, X) ->
   case any_none_or_unit(Xs) of
     true -> t_none();
