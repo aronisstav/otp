@@ -1328,7 +1328,8 @@ handle_clauses([C|Left], Arg, ArgType, OrigArgType,
   handle_clauses(Left, Arg, NewArgType, OrigArgType, State3,
                  NewCaseTypes, MapIn, NewAcc, NewClauseAcc);
 handle_clauses([], _Arg, _ArgType, _OrigArgType,
-	       #state{callgraph = Callgraph, races = Races} = State,
+	       #state{callgraph = Callgraph, races = Races,
+		      opaques = Opaques} = State,
                CaseTypes, _MapIn, Acc, ClauseAcc) ->
   State1 =
     case dialyzer_callgraph:get_race_detection(Callgraph) andalso
@@ -1340,7 +1341,8 @@ handle_clauses([], _Arg, _ArgType, _OrigArgType,
           dialyzer_races:get_race_list_size(Races) + 1, State);
       false -> State
     end,
-  {lists:reverse(Acc), State1, t_sup(CaseTypes)}.
+  {lists:reverse(Acc), State1,
+   t_sup([erl_types:t_unopaque(CT, Opaques) || CT <- CaseTypes])}.
 
 do_clause(C, Arg, ArgType0, OrigArgType, Map,
           #state{callgraph = Callgraph, races = Races} = State) ->
