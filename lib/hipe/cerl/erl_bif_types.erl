@@ -147,7 +147,9 @@ type(M, F, A) ->
 %% Arguments should be checked for undefinedness, so we do not make
 %% unnecessary overapproximations.
 
--spec type(atom(), atom(), arity(), [erl_types:erl_type()]) -> erl_types:erl_type().
+-spec type(atom(), atom(), arity(), [erl_types:erl_type()] |
+           {[erl_types:erl_type()], [erl_types:erl_type()]}) ->
+             erl_types:erl_type().
 
 %%-- binary -------------------------------------------------------------------
 type(binary, at, 2, Xs) ->
