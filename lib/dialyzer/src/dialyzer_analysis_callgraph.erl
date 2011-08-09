@@ -330,7 +330,8 @@ compile_src(File, Includes, Defines, Callgraph, CServer, UseContracts) ->
 	{ok, Core} ->
           Mod = cerl:concrete(cerl:module_name(Core)),
 	  NoWarn = abs_get_nowarn(AbstrCode, Mod),
-	  case dialyzer_utils:get_record_and_type_info(AbstrCode) of
+	  case dialyzer_utils:get_record_and_type_info(AbstrCode,
+						       UseContracts) of
 	    {error, _} = Error -> Error;
 	    {ok, RecInfo} ->
 	      CServer2 =
@@ -364,7 +365,8 @@ compile_byte(File, Callgraph, CServer, UseContracts) ->
 	{ok, Core} ->
           Mod = cerl:concrete(cerl:module_name(Core)),
           NoWarn = abs_get_nowarn(AbstrCode, Mod),
-	  case dialyzer_utils:get_record_and_type_info(AbstrCode) of
+	  case dialyzer_utils:get_record_and_type_info(AbstrCode,
+						       UseContracts) of
 	    {error, _} = Error -> Error;
 	    {ok, RecInfo} ->
 	      CServer1 =

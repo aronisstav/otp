@@ -115,7 +115,7 @@ extract(#analysis{macros = Macros,
 	CompOpts = dialyzer_utils:src_compiler_opts() ++ Is ++ Ds,
 	case dialyzer_utils:get_abstract_code_from_src(File, CompOpts) of
 	  {ok, AbstractCode} -> 
-	    case dialyzer_utils:get_record_and_type_info(AbstractCode) of
+	    case dialyzer_utils:get_record_and_type_info(AbstractCode, true) of
 	      {ok, RecDict} ->
 		Mod = list_to_atom(filename:basename(File, ".erl")),
 		case dialyzer_utils:get_spec_info(Mod, AbstractCode, RecDict) of

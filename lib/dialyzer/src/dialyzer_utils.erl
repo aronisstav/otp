@@ -37,7 +37,7 @@
 	 get_core_from_abstract_code/2,
 	 get_core_from_src/1,
 	 get_core_from_src/2,
-	 get_record_and_type_info/1,
+	 get_record_and_type_info/2,
 	 get_spec_info/3,
 	 merge_records/2,
 	 pp_hook/0,
@@ -162,53 +162,57 @@ get_core_from_abstract_code(AbstrCode, Opts) ->
 %%
 %% ============================================================================
 
--spec get_record_and_type_info(abstract_code()) ->
+-spec get_record_and_type_info(abstract_code(), boolean()) ->
 	{'ok', dict()} | {'error', string()}.
 
-get_record_and_type_info(AbstractCode) ->
+get_record_and_type_info(AbstractCode, UseContracts) ->
   Module = get_module(AbstractCode),
-  get_record_and_type_info(AbstractCode, Module, dict:new()).
+  get_record_and_type_info(AbstractCode, UseContracts, Module, dict:new()).
 
--spec get_record_and_type_info(abstract_code(), module(), dict()) ->
+-spec get_record_and_type_info(abstract_code(), boolean(), module(), dict()) ->
 	{'ok', dict()} | {'error', string()}.
 
-get_record_and_type_info(AbstractCode, Module, RecDict) ->
-  get_record_and_type_info(AbstractCode, Module, [], RecDict).
+get_record_and_type_info(AbstractCode, UseContracts, Module, RecDict) ->
+  get_record_and_type_info(AbstractCode, UseContracts, Module, [], RecDict).
 
 get_record_and_type_info([{attribute, _, record, {Name, Fields0}}|Left],
-			 Module, Records, RecDict) ->
-  {ok, Fields} = get_record_fields(Fields0, RecDict),
+			 UseContracts, Module, Records, RecDict) ->
+  {ok, Fields} = get_record_fields(Fields0, RecDict, UseContracts),
   Arity = length(Fields),
   NewRecDict = dict:store({record, Name}, [{Arity, Fields}], RecDict),
-  get_record_and_type_info(Left, Module, [{record, Name}|Records], NewRecDict);
+  get_record_and_type_info(Left, UseContracts, Module, [{record, Name}|Records],
+			   NewRecDict);
 get_record_and_type_info([{attribute, _, type, {{record, Name}, Fields0, []}}
-			  |Left], Module, Records, RecDict) ->
+			  |Left], UseContracts, Module, Records, RecDict) ->
   %% This overrides the original record declaration.
-  {ok, Fields} = get_record_fields(Fields0, RecDict),
+  {ok, Fields} = get_record_fields(Fields0, RecDict, UseContracts),
   Arity = length(Fields),
   NewRecDict = dict:store({record, Name}, [{Arity, Fields}], RecDict),
-  get_record_and_type_info(Left, Module, Records, NewRecDict);
+  get_record_and_type_info(Left, UseContracts, Module, Records, NewRecDict);
 get_record_and_type_info([{attribute, _, Attr, {Name, TypeForm}}|Left],
-			 Module, Records, RecDict) when Attr =:= 'type';
-                                                        Attr =:= 'opaque' ->
+			 UseContracts, Module, Records,
+			 RecDict) when Attr =:= 'type';
+				       Attr =:= 'opaque' ->
   try
     NewRecDict = add_new_type(Attr, Name, TypeForm, [], Module, RecDict),
-    get_record_and_type_info(Left, Module, Records, NewRecDict)
+    get_record_and_type_info(Left, UseContracts, Module, Records, NewRecDict)
   catch
     throw:{error, _} = Error -> Error
   end;
 get_record_and_type_info([{attribute, _, Attr, {Name, TypeForm, Args}}|Left],
-			 Module, Records, RecDict) when Attr =:= 'type';
-                                                        Attr =:= 'opaque' ->
+			 UseContracts, Module, Records,
+			 RecDict) when Attr =:= 'type';
+				       Attr =:= 'opaque' ->
   try
     NewRecDict = add_new_type(Attr, Name, TypeForm, Args, Module, RecDict),
-    get_record_and_type_info(Left, Module, Records, NewRecDict)
+    get_record_and_type_info(Left, UseContracts, Module, Records, NewRecDict)
   catch
     throw:{error, _} = Error -> Error
   end;
-get_record_and_type_info([_Other|Left], Module, Records, RecDict) ->
-  get_record_and_type_info(Left, Module, Records, RecDict);
-get_record_and_type_info([], _Module, Records, RecDict) ->
+get_record_and_type_info([_Other|Left], UseContracts, Module, Records,
+			 RecDict) ->
+  get_record_and_type_info(Left, UseContracts, Module, Records, RecDict);
+get_record_and_type_info([], _UseContracts, _Module, Records, RecDict) ->
   case type_record_fields(lists:reverse(Records), RecDict) of
     {ok, _NewRecDict} = Ok ->
       ?debug(_NewRecDict),
@@ -233,24 +237,31 @@ add_new_type(TypeOrOpaque, Name, TypeForm, ArgForms, Module, RecDict) ->
       end
   end.
 
-get_record_fields(Fields, RecDict) ->
-  get_record_fields(Fields, RecDict, []).
+get_record_fields(Fields, RecDict, UseContracts) ->
+  get_record_fields(Fields, RecDict, UseContracts, []).
 
 get_record_fields([{typed_record_field, OrdRecField, TypeForm}|Left],
-		  RecDict, Acc) ->
+		  RecDict, UseContracts, Acc) ->
   Name =
     case OrdRecField of
       {record_field, _Line, Name0} -> erl_parse:normalise(Name0);
       {record_field, _Line, Name0, _Init} -> erl_parse:normalise(Name0)
     end,
-    get_record_fields(Left, RecDict, [{Name, TypeForm}|Acc]);
-get_record_fields([{record_field, _Line, Name}|Left], RecDict, Acc) ->
+  Type =
+    case UseContracts of
+      true  -> TypeForm;
+      false -> {var, -1, '_'}
+    end,
+  get_record_fields(Left, RecDict, UseContracts, [{Name, Type}|Acc]);
+get_record_fields([{record_field, _Line, Name}|Left], RecDict, UseContracts,
+		  Acc) ->
   NewAcc = [{erl_parse:normalise(Name), {var, -1, '_'}}|Acc],
-  get_record_fields(Left, RecDict, NewAcc);
-get_record_fields([{record_field, _Line, Name, _Init}|Left], RecDict, Acc) ->
+  get_record_fields(Left, RecDict, UseContracts, NewAcc);
+get_record_fields([{record_field, _Line, Name, _Init}|Left], RecDict,
+		  UseContracts, Acc) ->
   NewAcc = [{erl_parse:normalise(Name), {var, -1, '_'}}|Acc],
-  get_record_fields(Left, RecDict, NewAcc);
-get_record_fields([], _RecDict, Acc) ->
+  get_record_fields(Left, RecDict, UseContracts, NewAcc);
+get_record_fields([], _RecDict, _UseContracts, Acc) ->
   {ok, lists:reverse(Acc)}.
 
 type_record_fields([], RecDict) ->
