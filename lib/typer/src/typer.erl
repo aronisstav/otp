@@ -397,8 +397,8 @@ get_types(Module, Analysis, Records) ->
     end,
   map__from_list(TypeInfoList).
 
-convert_type_info({{_M, F, A}, Range, Arg}) ->
-  {{F, A}, {Range, Arg}}.
+convert_type_info({{_M, F, A}, Type}) ->
+  {{F, A}, Type}.
 
 get_type({{M, F, A} = MFA, Sig}, CodeServer, Records) ->
   case dialyzer_codeserver:lookup_mfa_contract(MFA, CodeServer) of
