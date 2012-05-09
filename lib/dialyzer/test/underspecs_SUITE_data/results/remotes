@@ -1,4 +1,5 @@
 
+remote1.erl:13: Type specification remote1:foo(atom()) -> foo_ret() is a supertype of the success typing: remote1:foo('a') -> 'a'; ('b') -> 'b'
 remote1.erl:17: The specification for remote1:bar/1 states that the function might also return 'c' but the inferred return is 'a' | 'b'
 remote1.erl:29: The specification for remote1:gen1/0 states that the function might also return string() | number() but the inferred return is 'foo'
 remote1.erl:32: The specification for remote1:gen2/0 states that the function might also return atom() | string() | float() but the inferred return is 42

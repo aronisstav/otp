@@ -1,0 +1,2 @@
+
+global.erl:383: The pattern 'false' can never match the type 'true'
