@@ -87,7 +87,8 @@ MODULES =  \
 	v3_core \
 	v3_kernel \
 	v3_kernel_pp \
-	v3_life
+	v3_life \
+	unused_record_fields
 
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
 

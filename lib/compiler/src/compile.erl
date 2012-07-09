@@ -577,6 +577,7 @@ standard_passes() ->
      {iff,'to_pp',{done,"P"}},
 
      {iff,'dabstr',{listing,"abstr"}},
+     {iff,'unused_record_fields',?pass(unused_record_fields)},
      {iff,debug_info,?pass(save_abstract_code)},
 
      ?pass(expand_module),
@@ -1152,6 +1153,10 @@ core_dsetel_module(#compile{code=Code0,options=Opts}=St) ->
 
 kernel_module(#compile{code=Code0,options=Opts}=St) ->
     {ok,Code,Ws} = v3_kernel:module(Code0, Opts),
+    {ok,St#compile{code=Code,warnings=St#compile.warnings ++ Ws}}.
+
+unused_record_fields(#compile{code=Code0,ifile=File} = St) ->
+    {ok,Code,Ws} = unused_record_fields:module(Code0,File),
     {ok,St#compile{code=Code,warnings=St#compile.warnings ++ Ws}}.
 
 save_abstract_code(#compile{ifile=File}=St) ->
