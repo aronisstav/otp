@@ -2958,8 +2958,10 @@ state__lookup_name(Fun, #state{callgraph = Callgraph}) ->
 state__lookup_record(Tag, Arity, #state{records = Records}) ->
   case erl_types:lookup_record(Tag, Arity, Records) of
     {ok, Fields} ->
-      {ok, t_tuple([t_atom(Tag)|
-		    [FieldType || {_FieldName, FieldType} <- Fields]])};
+      RecType =
+        t_tuple([t_atom(Tag)|
+                 [FieldType || {_FieldName, _Abstr, FieldType} <- Fields]]),
+      {ok, RecType};
     error ->
       error
   end.

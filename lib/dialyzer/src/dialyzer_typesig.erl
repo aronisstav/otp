@@ -3264,7 +3264,7 @@ lookup_record(Records, Tag, Arity) ->
     {ok, Fields} ->
       RecType =
         t_tuple([t_from_term(Tag)|
-                 [FieldType || {_FieldName, FieldType} <- Fields]]),
+                 [FieldType || {_FieldName, _Abstr, FieldType} <- Fields]]),
       {ok, RecType};
     error ->
       error
