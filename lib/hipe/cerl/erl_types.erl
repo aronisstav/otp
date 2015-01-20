@@ -250,7 +250,7 @@
 %%
 
 -define(REC_TYPE_LIMIT, 2).
--define(EXPAND_DEPTH, 64).
+-define(EXPAND_DEPTH, 16).
 -define(EXPAND_LIMIT, 10000).
 
 -define(TUPLE_TAG_LIMIT, 5).
@@ -4064,7 +4064,8 @@ t_from_form(Form, ExpTypes, Module, RecDict) ->
                   module(), mod_records(), var_table()) -> erl_type().
 
 t_from_form(Form, ExpTypes, Module, RecDict, VarDict) ->
-  t_from_form1(Form, [], ExpTypes, Module, RecDict, VarDict).
+  {T, _} = t_from_form1(Form, [], ExpTypes, Module, RecDict, VarDict),
+  T.
 
 %% Replace external types with with none().
 -spec t_from_form_without_remote(parse_form(), type_table()) -> erl_type().
@@ -4073,7 +4074,8 @@ t_from_form_without_remote(Form, TypeTable) ->
   Module = mod,
   RecDict = dict:from_list([{Module, TypeTable}]),
   ExpTypes = replace_by_none,
-  t_from_form1(Form, [], ExpTypes, Module, RecDict, dict:new()).
+  {T, _} = t_from_form1(Form, [], ExpTypes, Module, RecDict, dict:new()),
+  T.
 
 %% REC_TYPE_LIMIT is used for limiting the depth of recursive types.
 %% EXPAND_LIMIT is used for limiting the size of types by
@@ -4097,7 +4099,7 @@ t_from_form1(Form, TypeNames, ET, M, MR, V, D) ->
       D1 = D div 2,
       t_from_form1(Form, TypeNames, ET, M, MR, V, D1);
     true ->
-      T
+      {T, L1}
   end.
 
 -spec t_from_form(parse_form(), type_names(),
@@ -4341,7 +4343,8 @@ type_from_form(Name, Args, TypeNames, ET, M, MR, V, D, L) ->
           true ->
             List = lists:zip(ArgNames, ArgTypes),
             TmpV = dict:from_list(List),
-            t_from_form(Type, [TypeName|TypeNames], ET, M, MR, TmpV, D, L1);
+            OpaqueNames = opaque_names([TypeName|TypeNames]),
+            t_from_form1(Type, OpaqueNames, ET, M, MR, TmpV);
           false -> {t_any(), L1}
         end,
       Args2 = [subst_all_vars_to_any(ArgType) || ArgType <- ArgTypes],
@@ -4357,55 +4360,70 @@ skip_opaque_alias(T, Module, Name, Args) ->
 
 remote_from_form(RemMod, Name, Args, TypeNames, ET, M, MR, V, D, L) ->
   {ArgTypes, L1} = list_from_form(Args, TypeNames, ET, M, MR, V, D, L),
-  ArgsLen = length(Args),
-  RemType = {type, RemMod, Name, ArgsLen},
-  case dict:find(RemMod, MR) of
-    error when ET =:= replace_by_none ->
+  if
+    ET =:= replace_by_none ->
       {t_none(), L1};
-    error ->
-      self() ! {self(), ext_types, {RemMod, Name, ArgsLen}},
-      {t_any(), L1};
-    {ok, RemDict} ->
-      MFA = {RemMod, Name, ArgsLen},
-      case sets:is_element(MFA, ET) of
-        true ->
-          case lookup_type(Name, ArgsLen, RemDict) of
-            {type, {_Mod, Type, ArgNames}} ->
-              case can_unfold_more(RemType, TypeNames) of
-                true ->
+    true ->
+      ArgsLen = length(Args),
+      case dict:find(RemMod, MR) of
+        error ->
+          self() ! {self(), ext_types, {RemMod, Name, ArgsLen}},
+          {t_any(), L1};
+        {ok, RemDict} ->
+          MFA = {RemMod, Name, ArgsLen},
+          case sets:is_element(MFA, ET) of
+            true ->
+              case lookup_type(Name, ArgsLen, RemDict) of
+                {type, {_Mod, Type, ArgNames}} ->
+                  RemType = {type, RemMod, Name, ArgsLen},
+                  case can_unfold_more(RemType, TypeNames) of
+                    true ->
+                      List = lists:zip(ArgNames, ArgTypes),
+                      TmpVarDict = dict:from_list(List),
+                      NewTypeNames = [RemType|TypeNames],
+                      t_from_form(Type, NewTypeNames, ET,
+                                  RemMod, MR, TmpVarDict, D, L1);
+                    false ->
+                      {t_any(), L1}
+                  end;
+                {opaque, {Mod, Type, ArgNames}} ->
+                  RemType = {opaque, RemMod, Name, ArgsLen},
                   List = lists:zip(ArgNames, ArgTypes),
                   TmpVarDict = dict:from_list(List),
-                  NewTypeNames = [RemType|TypeNames],
-                  t_from_form(Type, NewTypeNames, ET,
-                              RemMod, MR, TmpVarDict, D, L1);
-                false ->
-                  {t_any(), L1}
+                  {NewRep, L2} =
+                    case can_unfold_more(RemType, TypeNames) of
+                      true ->
+                        OpaqueNames = opaque_names([RemType|TypeNames]),
+                        t_from_form1(Type, OpaqueNames, ET, RemMod, MR, TmpVarDict);
+                      false ->
+                        {t_any(), L1}
+                    end,
+                  {skip_opaque_alias(NewRep, Mod, Name, ArgTypes), L2};
+                error ->
+                  Msg = io_lib:format("Unable to find remote type ~w:~w()\n",
+                                      [RemMod, Name]),
+                  throw({error, Msg})
               end;
-            {opaque, {Mod, Type, ArgNames}} ->
-              List = lists:zip(ArgNames, ArgTypes),
-              TmpVarDict = dict:from_list(List),
-              {NewRep, L2} =
-                case can_unfold_more(RemType, TypeNames) of
-                  true ->
-                    NewTypeNames = [RemType|TypeNames],
-		    t_from_form(Type, NewTypeNames, ET,
-                                RemMod, MR, TmpVarDict, D, L1);
-                  false ->
-		    {t_any(), L1}
-                end,
-              {skip_opaque_alias(NewRep, Mod, Name, ArgTypes), L2};
-            error ->
-              Msg = io_lib:format("Unable to find remote type ~w:~w()\n",
-                                  [RemMod, Name]),
-              throw({error, Msg})
-          end;
-        false when ET =:= replace_by_none ->
-          {t_none(), L1};
-        false ->
-          self() ! {self(), ext_types, {RemMod, Name, ArgsLen}},
-          {t_any(), L1}
+            false ->
+              self() ! {self(), ext_types, {RemMod, Name, ArgsLen}},
+              {t_any(), L1}
+          end
       end
   end.
+
+%%% Opaque types (both local and remote) are problematic when it comes
+%%% to the limits (TypeNames, D, and L). The reason is that if any()
+%%% is substituted for a more specialized subtype of an opaque type,
+%%% the property stated along with decorate_with_opaque() (the type
+%%% has to be a subtype of the declared type) no longer holds. In
+%%% fact, that property cannot hold for recursive opaque types.
+%%% opaque_names() removes all but opaque types, which means that in
+%%% the absence of recursive opaque types the subtype property will
+%%% hold, and by keeping the opaque type names the recursion is
+%%% limited.
+
+opaque_names(TypeNames) ->
+  [Name || {opaque, _M, _N, _L} = Name <- TypeNames].
 
 record_from_form({atom, _, Name}, ModFields, TypeNames, ET, M, MR, V, D, L) ->
   case can_unfold_more({record, Name}, TypeNames) of
@@ -4456,7 +4474,12 @@ build_field_dict(FieldTypes, TypeNames, ET, M, MR, V, D, L) ->
 build_field_dict([{type, _, field_type, [{atom, _, Name}, Type]}|Left],
 		 TypeNames, ET, M, MR, V, D, L, Acc) ->
   {T, L1} = t_from_form(Type, TypeNames, ET, M, MR, V, D, L - 1),
-  NewAcc = [{Name, Type, T}|Acc],
+  %% The cached record field type (DeclType) in
+  %% get_mod_record_types()), was created with a similar call as TT.
+  %% Using T for the subtype test does not work since any() is not
+  %% always a subset of the field type.
+  TT = t_from_form(Type, ET, M, MR, V),
+  NewAcc = [{Name, Type, T, TT}|Acc],
   {Dict, L2} =
     build_field_dict(Left, TypeNames, ET, M, MR, V, D, L1, NewAcc),
   {Dict, L2};
@@ -4464,20 +4487,21 @@ build_field_dict([], _TypeNames, _ET, _M, _MR, _V, _D, L, Acc) ->
   {lists:keysort(1, Acc), L}.
 
 get_mod_record_types([{FieldName, _Abstr, DeclType}|Left1],
-                        [{FieldName, TypeForm, ModType}|Left2], Acc) ->
-  ModTypeNoVars = subst_all_vars_to_any(ModType),
+                     [{FieldName, TypeForm, ModType, ModTypeTest}|Left2],
+                     Acc) ->
+  ModTypeNoVars = subst_all_vars_to_any(ModTypeTest),
   case t_is_subtype(ModTypeNoVars, DeclType) of
     false -> {error, FieldName};
     true -> get_mod_record_types(Left1, Left2,
-                              [{FieldName, TypeForm, DeclType}|Acc])
+                              [{FieldName, TypeForm, ModType}|Acc])
   end;
 get_mod_record_types([{FieldName1, _Abstr, _DeclType} = DT|Left1],
-                  [{FieldName2, _FormType, _ModType}|_] = List2,
-                  Acc) when FieldName1 < FieldName2 ->
+                     [{FieldName2, _FormType, _ModType, _TT}|_] = List2,
+                     Acc) when FieldName1 < FieldName2 ->
   get_mod_record_types(Left1, List2, [DT|Acc]);
 get_mod_record_types(Left1, [], Acc) ->
   {ok, lists:keysort(1, Left1++Acc)};
-get_mod_record_types(_, [{FieldName2, _FormType, _ModType}|_], _Acc) ->
+get_mod_record_types(_, [{FieldName2, _FormType, _ModType, _TT}|_], _Acc) ->
   {error, FieldName2}.
 
 %% It is important to create a limited version of the record type
