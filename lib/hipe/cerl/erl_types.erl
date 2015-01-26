@@ -761,7 +761,7 @@ t_opaque_from_records(RecDict) ->
 		    end
 		end, RecDict),
   OpaqueTypeDict =
-    dict:map(fun({opaque, Name, _Arity}, {Module, _Type, ArgNames}) ->
+    dict:map(fun({opaque, Name, _Arity}, {{Module, _Form, ArgNames}, _Type}) ->
                  %% Args = args_to_types(ArgNames),
                  %% List = lists:zip(ArgNames, Args),
                  %% TmpVarDict = dict:from_list(List),
@@ -4312,7 +4312,7 @@ builtin_type(Name, Type, TypeNames, ET, M, MR, V, D, L) ->
   case dict:find(M, MR) of
     {ok, R} ->
       case lookup_type(Name, 0, R) of
-        {_, {_M, _T, _A}} ->
+        {_, {{_M, _F, _A}, _T}} ->
           type_from_form(Name, [], TypeNames, ET, M, MR, V, D, L);
         error ->
           {Type, L}
@@ -4326,29 +4326,29 @@ type_from_form(Name, Args, TypeNames, ET, M, MR, V, D, L) ->
   {ArgTypes, L1} = list_from_form(Args, TypeNames, ET, M, MR, V, D, L),
   {ok, R} = dict:find(M, MR),
   case lookup_type(Name, ArgsLen, R) of
-    {type, {Module, Type, ArgNames}} ->
+    {type, {{Module, Form, ArgNames}, _Type}} ->
       TypeName = {type, Module, Name, ArgsLen},
       case can_unfold_more(TypeName, TypeNames) of
         true ->
           List = lists:zip(ArgNames, ArgTypes),
           TmpV = dict:from_list(List),
-          t_from_form(Type, [TypeName|TypeNames], ET, M, MR, TmpV, D, L1);
+          t_from_form(Form, [TypeName|TypeNames], ET, M, MR, TmpV, D, L1);
         false ->
           {t_any(), L1}
       end;
-    {opaque, {Module, Type, ArgNames}} ->
-      TypeName = {opaque, Module, Name, ArgsLen}, % 'type' would do...
-      {Rep, L3} =
+    {opaque, {{Module, Form, ArgNames}, Type}} ->
+      TypeName = {opaque, Module, Name, ArgsLen},
+      {Rep, L2} =
         case can_unfold_more(TypeName, TypeNames) of
           true ->
             List = lists:zip(ArgNames, ArgTypes),
             TmpV = dict:from_list(List),
-            OpaqueNames = opaque_names([TypeName|TypeNames]),
-            t_from_form1(Type, OpaqueNames, ET, M, MR, TmpV);
+            t_from_form(Form, [TypeName|TypeNames], ET, M, MR, TmpV, D, L1);
           false -> {t_any(), L1}
         end,
+      Rep1 = choose_opaque_type(Rep, Type),
       Args2 = [subst_all_vars_to_any(ArgType) || ArgType <- ArgTypes],
-      {skip_opaque_alias(Rep, Module, Name, Args2), L3};
+      {skip_opaque_alias(Rep1, Module, Name, Args2), L2};
     error ->
       Msg = io_lib:format("Unable to find type ~w/~w\n", [Name, ArgsLen]),
       throw({error, Msg})
@@ -4374,31 +4374,33 @@ remote_from_form(RemMod, Name, Args, TypeNames, ET, M, MR, V, D, L) ->
           case sets:is_element(MFA, ET) of
             true ->
               case lookup_type(Name, ArgsLen, RemDict) of
-                {type, {_Mod, Type, ArgNames}} ->
+                {type, {{_Mod, Form, ArgNames}, _Type}} ->
                   RemType = {type, RemMod, Name, ArgsLen},
                   case can_unfold_more(RemType, TypeNames) of
                     true ->
                       List = lists:zip(ArgNames, ArgTypes),
                       TmpVarDict = dict:from_list(List),
                       NewTypeNames = [RemType|TypeNames],
-                      t_from_form(Type, NewTypeNames, ET,
+                      t_from_form(Form, NewTypeNames, ET,
                                   RemMod, MR, TmpVarDict, D, L1);
                     false ->
                       {t_any(), L1}
                   end;
-                {opaque, {Mod, Type, ArgNames}} ->
+                {opaque, {{Mod, Form, ArgNames}, Type}} ->
                   RemType = {opaque, RemMod, Name, ArgsLen},
                   List = lists:zip(ArgNames, ArgTypes),
                   TmpVarDict = dict:from_list(List),
                   {NewRep, L2} =
                     case can_unfold_more(RemType, TypeNames) of
                       true ->
-                        OpaqueNames = opaque_names([RemType|TypeNames]),
-                        t_from_form1(Type, OpaqueNames, ET, RemMod, MR, TmpVarDict);
+                        NewTypeNames = [RemType|TypeNames],
+                        t_from_form(Form, NewTypeNames, ET, RemMod, MR,
+                                    TmpVarDict, D, L1);
                       false ->
                         {t_any(), L1}
                     end,
-                  {skip_opaque_alias(NewRep, Mod, Name, ArgTypes), L2};
+                  NewRep1 = choose_opaque_type(NewRep, Type),
+                  {skip_opaque_alias(NewRep1, Mod, Name, ArgTypes), L2};
                 error ->
                   Msg = io_lib:format("Unable to find remote type ~w:~w()\n",
                                       [RemMod, Name]),
@@ -4411,19 +4413,24 @@ remote_from_form(RemMod, Name, Args, TypeNames, ET, M, MR, V, D, L) ->
       end
   end.
 
-%%% Opaque types (both local and remote) are problematic when it comes
-%%% to the limits (TypeNames, D, and L). The reason is that if any()
-%%% is substituted for a more specialized subtype of an opaque type,
-%%% the property stated along with decorate_with_opaque() (the type
-%%% has to be a subtype of the declared type) no longer holds. In
-%%% fact, that property cannot hold for recursive opaque types.
-%%% opaque_names() removes all but opaque types, which means that in
-%%% the absence of recursive opaque types the subtype property will
-%%% hold, and by keeping the opaque type names the recursion is
-%%% limited.
-
-opaque_names(TypeNames) ->
-  [Name || {opaque, _M, _N, _L} = Name <- TypeNames].
+%% Opaque types (both local and remote) are problematic when it comes
+%% to the limits (TypeNames, D, and L). The reason is that if any() is
+%% substituted for a more specialized subtype of an opaque type, the
+%% property stated along with decorate_with_opaque() (the type has to
+%% be a subtype of the declared type) no longer holds.
+%%
+%% The less than perfect remedy: if the opaque type created from a
+%% form is not a subset of the declared type, the declared type is
+%% used instead, effectively bypassing the limits, and potentially
+%% resulting in huge types.
+choose_opaque_type(Type, DeclType) ->
+  case
+    t_is_subtype(subst_all_vars_to_any(Type),
+                 subst_all_vars_to_any(DeclType))
+  of
+    true -> Type;
+    false -> DeclType
+  end.
 
 record_from_form({atom, _, Name}, ModFields, TypeNames, ET, M, MR, V, D, L) ->
   case can_unfold_more({record, Name}, TypeNames) of
