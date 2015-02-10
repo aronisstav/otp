@@ -4095,7 +4095,7 @@ t_from_form1(Form, TypeNames, ET, M, MR, V, D) ->
   L = ?EXPAND_LIMIT,
   {T, L1} = t_from_form(Form, TypeNames, ET, M, MR, V, D, L),
   if
-    L1 =< 0, D > 0 ->
+    L1 =< 0, D > 1 ->
       D1 = D div 2,
       t_from_form1(Form, TypeNames, ET, M, MR, V, D1);
     true ->
