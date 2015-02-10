@@ -4154,7 +4154,7 @@ t_from_form({type, _L, any, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
 t_from_form({type, _L, arity, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_arity(), L};
 t_from_form({type, _L, array, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(array, t_array(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(array, t_array(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, atom, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_atom(), L};
 t_from_form({type, _L, binary, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
@@ -4177,9 +4177,9 @@ t_from_form({type, _L, byte, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
 t_from_form({type, _L, char, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_char(), L};
 t_from_form({type, _L, dict, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(dict, t_dict(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(dict, t_dict(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, digraph, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(digraph, t_digraph(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(digraph, t_digraph(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, float, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_float(), L};
 t_from_form({type, _L, function, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
@@ -4196,9 +4196,9 @@ t_from_form({type, _L, 'fun', [{type, _, product, Domain}, Range]},
   {Ran1, L2} = t_from_form(Range, TypeNames, ET, M, MR, V, D - 1, L1),
   {t_fun(Dom1, Ran1), L2};
 t_from_form({type, _L, gb_set, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(gb_set, t_gb_set(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(gb_set, t_gb_set(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, gb_tree, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(gb_tree, t_gb_tree(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(gb_tree, t_gb_tree(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, identifier, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_identifier(), L};
 t_from_form({type, _L, integer, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
@@ -4212,8 +4212,12 @@ t_from_form({type, _L, list, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
 t_from_form({type, _L, list, [Type]}, TypeNames, ET, M, MR, V, D, L) ->
   {T, L1} = t_from_form(Type, TypeNames, ET, M, MR, V, D - 1, L - 1),
   {t_list(T), L1};
-t_from_form({type, _L, map, _}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(map, t_map([]), TypeNames, ET, M, MR, V, D, L);
+t_from_form({type, _L, map, As0}, TypeNames, ET, M, MR, V, D, L) ->
+  As = case is_list(As0) of
+         true -> As0;
+         false -> []
+       end,
+  builtin_type(map, t_map([]), As, TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, mfa, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_mfa(), L};
 t_from_form({type, _L, module, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
@@ -4271,7 +4275,7 @@ t_from_form({type, _L, product, Elements}, TypeNames, ET, M, MR, V, D, L) ->
   {Lst, L1} = list_from_form(Elements, TypeNames, ET, M, MR, V, D - 1, L),
   {t_product(Lst), L1};
 t_from_form({type, _L, queue, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(queue, t_queue(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(queue, t_queue(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, range, [From, To]} = Type,
 	    _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   case {erl_eval:partial_eval(From), erl_eval:partial_eval(To)} of
@@ -4284,13 +4288,13 @@ t_from_form({type, _L, record, [Name|Fields]}, TypeNames, ET, M, MR, V, D, L) ->
 t_from_form({type, _L, reference, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_reference(), L};
 t_from_form({type, _L, set, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(set, t_set(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(set, t_set(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, string, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_string(), L};
 t_from_form({type, _L, term, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_any(), L};
 t_from_form({type, _L, tid, []}, TypeNames, ET, M, MR, V, D, L) ->
-  builtin_type(tid, t_tid(), TypeNames, ET, M, MR, V, D, L);
+  builtin_type(tid, t_tid(), [], TypeNames, ET, M, MR, V, D, L);
 t_from_form({type, _L, timeout, []}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
   {t_timeout(), L};
 t_from_form({type, _L, tuple, any}, _TypeNames, _ET, _M, _MR, _V, _D, L) ->
@@ -4308,12 +4312,12 @@ t_from_form({opaque, _L, Name, {Mod, Args, Rep}}, _TypeNames,
   %% XXX. To be removed.
   {t_opaque(Mod, Name, Args, Rep), L}.
 
-builtin_type(Name, Type, TypeNames, ET, M, MR, V, D, L) ->
+builtin_type(Name, Type, Args, TypeNames, ET, M, MR, V, D, L) ->
   case dict:find(M, MR) of
     {ok, R} ->
-      case lookup_type(Name, 0, R) of
+      case lookup_type(Name, length(Args), R) of
         {_, {{_M, _F, _A}, _T}} ->
-          type_from_form(Name, [], TypeNames, ET, M, MR, V, D, L);
+          type_from_form(Name, Args, TypeNames, ET, M, MR, V, D, L);
         error ->
           {Type, L}
       end;
@@ -4587,7 +4591,7 @@ t_form_to_string({type, _L, iodata, []}) -> "iodata()";
 t_form_to_string({type, _L, iolist, []}) -> "iolist()";
 t_form_to_string({type, _L, list, [Type]}) -> 
   "[" ++ t_form_to_string(Type) ++ "]";
-t_form_to_string({type, _L, map, _}) ->
+t_form_to_string({type, _L, map, Args}) when not is_list(Args) ->
   "#{}";
 t_form_to_string({type, _L, mfa, []}) -> "mfa()";
 t_form_to_string({type, _L, module, []}) -> "module()";
