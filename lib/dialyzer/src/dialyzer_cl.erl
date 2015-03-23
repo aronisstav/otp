@@ -469,7 +469,7 @@ expand_dependent_modules(Md5, DiffMd5, ModDeps) ->
 		  Mod = list_to_atom(filename:basename(File, ".beam")),
 		  sets:is_element(Mod, AnalyzeMods)
 	      end,
-  {[F || {F, _} <- Md5, FilterFun(F)], RemovedMods, NewModDeps}.
+  {[F || {F, _} <- Md5, FilterFun(F)], BigSet, NewModDeps}.
 
 expand_dependent_modules_1([Mod|Mods], Included, ModDeps) ->
   case dict:find(Mod, ModDeps) of
