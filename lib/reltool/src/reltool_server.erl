@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2014. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2015. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -507,7 +507,9 @@ app_set_config_only(Mods,#app{name                 = Name,
 mod_set_config_only(ConfigMods) ->
     [#mod{name       = Name,
 	  incl_cond  = InclCond,
-	  debug_info = DebugInfo} ||
+	  debug_info = DebugInfo,
+          exists     = false,
+          uses_mods  = []} ||
 	#mod{name       = Name,
 	     incl_cond  = InclCond,
 	     debug_info = DebugInfo} <- ConfigMods,
@@ -1530,7 +1532,7 @@ decode(#app{} = App, [{Key, Val} | KeyVals]) ->
         end,
     decode(App2, KeyVals);
 decode(#app{mods = Mods} = App, [{mod, Name, ModKeyVals} | AppKeyVals]) ->
-    Mod = decode(#mod{name = Name}, ModKeyVals),
+    Mod = decode(#mod{name = Name, exists = false}, ModKeyVals),
     decode(App#app{mods = [Mod | Mods]}, AppKeyVals);
 decode(#mod{} = Mod, [{Key, Val} | KeyVals]) ->
     Mod2 =
