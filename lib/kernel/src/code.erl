@@ -68,7 +68,7 @@
 	 clash/0,
      get_mode/0]).
 
--export_type([load_error_rsn/0, load_ret/0]).
+-export_type([load_error_rsn/0, load_ret/1]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -76,14 +76,16 @@
 %% Some types for basic exported functions of this module
 %%----------------------------------------------------------------------------
 
--type load_error_rsn() :: 'badfile'
+-type load_error_rsn() :: 'badarg'
+                        | 'badfile'
+                        | 'embedded'
                         | 'native_code'
                         | 'nofile'
                         | 'not_purged'
                         | 'on_load'
                         | 'sticky_directory'.
--type load_ret() :: {'error', What :: load_error_rsn()}
-                  | {'module', Module :: module()}.
+-type load_ret(Module) :: {'error', What :: load_error_rsn()}
+                        | {'module', Module}.
 -type loaded_ret_atoms() :: 'cover_compiled' | 'preloaded'.
 -type loaded_filename() :: (Filename :: file:filename()) | loaded_ret_atoms().
 
@@ -128,43 +130,47 @@ module_md5(_) ->
 objfile_extension() ->
     init:objfile_extension().
 
--spec load_file(Module) -> load_ret() when
+-spec load_file(Module) -> load_ret(Module) when
       Module :: module().
 load_file(Mod) when is_atom(Mod) ->
     call({load_file,Mod}).
 
--spec ensure_loaded(Module) -> {module, Module} | {error, What} when
-      Module :: module(),
-      What :: embedded | badfile | native_code | nofile | on_load.
+-spec ensure_loaded(Module) -> load_ret(Module) when
+      Module :: module().
 ensure_loaded(Mod) when is_atom(Mod) -> 
     call({ensure_loaded,Mod}).
 
 %% XXX File as an atom is allowed only for backwards compatibility.
--spec load_abs(Filename) -> load_ret() when
+-spec load_abs(Filename) -> load_ret(Module) when
+      Module :: module(),
       Filename :: file:filename().
 load_abs(File) when is_list(File); is_atom(File) -> call({load_abs,File,[]}).
 
 %% XXX Filename is also an atom(), e.g. 'cover_compiled'
--spec load_abs(Filename :: loaded_filename(), Module :: module()) -> load_ret().
+-spec load_abs(Filename :: loaded_filename(), Module) -> load_ret(Module) when
+      Module :: module().
 load_abs(File, M) when (is_list(File) orelse is_atom(File)), is_atom(M) ->
     call({load_abs,File,M}).
 
 %% XXX Filename is also an atom(), e.g. 'cover_compiled'
--spec load_binary(Module, Filename, Binary) ->
-                         {module, Module} | {error, What} when
+-spec load_binary(Module, Filename, Binary) -> load_ret(Module) when
       Module :: module(),
       Filename :: loaded_filename(),
-      Binary :: binary(),
-      What :: badarg | load_error_rsn().
+      Binary :: binary().
 load_binary(Mod, File, Bin)
   when is_atom(Mod), (is_list(File) orelse is_atom(File)), is_binary(Bin) ->
     call({load_binary,Mod,File,Bin}).
 
--spec load_native_partial(Module :: module(), Binary :: binary()) -> load_ret().
+-spec load_native_partial(Module, Binary) -> load_ret(Module) when
+      Module :: module(),
+      Binary :: binary().
 load_native_partial(Mod, Bin) when is_atom(Mod), is_binary(Bin) ->
     call({load_native_partial,Mod,Bin}).
 
--spec load_native_sticky(Module :: module(), Binary :: binary(), WholeModule :: 'false' | binary()) -> load_ret().
+-spec load_native_sticky(Module, Binary, WholeModule) -> load_ret(Module) when
+      Module :: module(),
+      Binary :: binary(),
+      WholeModule :: 'false' | binary().
 load_native_sticky(Mod, Bin, WholeModule)
   when is_atom(Mod), is_binary(Bin),
        (is_binary(WholeModule) orelse WholeModule =:= false) ->
