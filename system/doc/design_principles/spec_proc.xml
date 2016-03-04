@@ -525,6 +525,32 @@ init(Parent, Name, Module) ->
 -export([init/0, handle_req/2, terminate/0]).
 
 ...</code>
+
+    <p>Specifications given with <c>-callback</c> attributes in a behaviour's
+    module can be further refined by adding normal <c>-spec</c>s in the callback
+    module. This can be useful, as <c>-callback</c> specs are usually
+    generic.</p>
+    
+    <code type="none">
+-module(db).
+-behaviour(simple_server).
+
+-export([init/0, handle_req/2, terminate/0]).
+
+-record(state, {field1 :: [atom()], field2 :: integer()}).
+
+-type state()   :: #state{}.
+-type request() :: {'store', term(), term()};
+                   {'lookup', term()}.
+
+...
+
+-spec handle_req(request(), state()) -> {'ok', term()}.
+
+...</code>
+
+    <p>Any such <c>-spec</c>s should of course be subtypes of the respective
+    <c>-callback</c>s.</p>
+    
   </section>
 </chapter>
-
